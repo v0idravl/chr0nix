@@ -1,0 +1,4 @@
+event_id,timestamp,event_type,description,location,reference
+CCTV-01,2025-11-02 01:31:05,bookmark,Motion event bookmarked by DVR,Loading dock camera 12,EXH-114-C
+CCTV-02,2025-11-02 02:05:22,bookmark,Interior motion in electronics aisle,Camera 07,EXH-114-D
+CCTV-03,2025-11-02 02:40:03,bookmark,Suspect exits east door carrying merchandise,Camera 03,EXH-114-E

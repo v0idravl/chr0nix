@@ -1,0 +1,7 @@
+# Python bytecode and caches
+__pycache__/
+*.pyc
+
+# Tool output directories — demo and ad-hoc runs never dirty the tree
+examples/out/
+out/

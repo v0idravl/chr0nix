@@ -1,0 +1,4 @@
+event_id,timestamp,event_type,description,location,reference
+OFC-01,2025-11-02T02:12:44-08:00,arrival,Arrived on scene; perimeter check complete,Store 114,
+OFC-02,2025-11-02T03:26:10-07:00,observation,Interior sweep; bodycam clock had not fallen back,Store 114,
+OFC-03,2025-11-02 02:58:00,custody,One suspect detained at east exit,East exit,CASE-2025-1102

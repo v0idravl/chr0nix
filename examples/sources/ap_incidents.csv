@@ -1,0 +1,5 @@
+event_id,timestamp,event_type,description,location,reference
+AP-101,2025-11-02 02:31:05,alarm,Glass-break sensor activation,Store 114 - rear stockroom,EXH-114-A
+AP-102,2025-11-02 02:47:59,alarm,Rear door contact alarm,Store 114 - loading dock,EXH-114-B
+AP-103,2025-11-02 03:05:11,dispatch,Monitoring center dispatched LAPD,Store 114,CAD-2214
+AP-104,2025-11-02 04:20:33,case,Case auto-created in AP case management,Store 114,CASE-2025-1102
