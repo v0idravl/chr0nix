@@ -44,6 +44,7 @@ from m3talex.safety import ensure_output_dir, validate_input_dir, validate_input
 
 from .. import __version__ as suite_version
 from .. import tiers
+from ..casework import CaseworkError
 from ..casework import cases as casework_cases
 from ..casework import entities as casework_entities
 from ..casework import intake as casework_intake
@@ -739,11 +740,13 @@ def _casework_status_tier(args: list[str]) -> str:
 
     ``submitted`` and ``referred`` attest the case's accuracy outside the
     workspace; internal movement (draft, pending, closed) is ordinary
-    documentation and stays GREEN. Malformed invocations (fewer than two
-    arguments) resolve GREEN so they fail with the usage error, not a
-    challenge.
+    documentation and stays GREEN. The new status may sit in args[0]
+    (active-case form: ``status submitted``) or args[1] (explicit form:
+    ``status <case-id> submitted``), so both positions are checked.
+    Malformed invocations resolve GREEN so they fail with the usage
+    error, not a challenge.
     """
-    if len(args) >= 2 and args[1] in ("submitted", "referred"):
+    if any(arg in ("submitted", "referred") for arg in args[:2]):
         return tiers.YELLOW
     return tiers.GREEN
 
@@ -753,9 +756,10 @@ def _casework_link_tier(args: list[str]) -> str:
 
     Linking a vehicle or another case is ordinary documentation;
     linking a subject asserts a person's involvement across cases,
-    which is lawful only for authorized casework.
+    which is lawful only for authorized casework. The entity type may
+    sit in args[0] (active-case form) or args[1] (explicit form).
     """
-    if len(args) >= 2 and args[1] == "subject":
+    if "subject" in args[:2]:
         return tiers.YELLOW
     return tiers.GREEN
 
@@ -792,13 +796,70 @@ def _casework_case_id(session: SessionContext, args: list[str], usage: str) -> s
     return session.active_case
 
 
-def _cmd_casework_init(session: SessionContext, args: list[str]) -> str:
+def _casework_resolve_case(
+    session: SessionContext,
+    workspace: Path,
+    args: list[str],
+    usage: str,
+    params: int | None = None,
+) -> tuple[str, list[str]]:
+    """Split ``(case_id, rest)`` off ``args``, active case as default.
+
+    The seamless-workflow rule: every case-acting command accepts an
+    explicit case-id, but may omit it when an active case is set. The
+    disambiguator is existence — if the first argument names a case in
+    this workspace, it is the case-id; otherwise the active case takes
+    over. Handlers always echo the case they acted on, so the default
+    is convenient but never silent.
+
+    ``params`` is the command's exact parameter count when it has one
+    (status, categorize, classify, statement-sign). Given more
+    arguments than that, the first MUST be a case-id: it is validated
+    strictly, so ``status case-9999-999 pending`` fails with a clean
+    "unknown case" instead of being absorbed as a parameter. Commands
+    with variable arity (link, event, file, statement) rely on the
+    existence check alone — a mistyped case-id there is absorbed as a
+    parameter, which the echoed output makes visible.
+    """
     if args:
-        raise SuiteError("usage: init")
-    _require(session.workspace is None, "workspace is not set (use: set workspace <dir>)")
+        if params is not None and len(args) > params:
+            # Strict explicit form: too many arguments for the
+            # active-case form, so the first must name a real case.
+            casework_cases.load_case(workspace, args[0])
+            return args[0], args[1:]
+        try:
+            casework_cases.load_case(workspace, args[0])
+        except CaseworkError:
+            pass  # not a case id — the active case absorbs the arguments
+        else:
+            return args[0], args[1:]
+    if session.active_case is None:
+        raise SuiteError(
+            f"no case given and no active case (use: open <case-id>) — usage: {usage}"
+        )
+    return session.active_case, args
+
+
+def _cmd_casework_init(session: SessionContext, args: list[str]) -> str:
+    if len(args) > 1:
+        raise SuiteError("usage: init [workspace-dir]")
+    if args:
+        # One-step bootstrap: `init <dir>` creates the directory if
+        # needed, points the session at it, and initializes it — the
+        # commonest first action in the console, in one command.
+        path = Path(args[0]).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        session.set_option("workspace", str(path))
+    _require(
+        session.workspace is None,
+        "workspace is not set (use: set workspace <dir>) — or bootstrap in one step: init <dir>",
+    )
     written = casework_workspace.init_workspace(session.workspace)
     lines = [f"initialized casework workspace at {session.workspace}"]
     lines += [f"wrote {path}" for path in written]
+    if session.actor is None:
+        lines.append("next: set actor <name>")
+    lines.append("next: new <case-id> <title...>")
     return "\n".join(lines)
 
 
@@ -810,7 +871,11 @@ def _cmd_casework_new(session: SessionContext, args: list[str]) -> str:
         workspace, args[0], " ".join(args[1:]), _casework_actor(session)
     )
     session.active_case = case.id
-    return f"created case {case.id} (draft) — active case -> {case.id}"
+    return (
+        f"created case {case.id} (draft) — active case -> {case.id}\n"
+        f"next: classify {case.id} <taxonomy-path> · categorize <category-id> · "
+        f"drop evidence in the inbox and `file` · link <entity>"
+    )
 
 
 def _casework_cases_listing(session: SessionContext) -> str:
@@ -851,42 +916,48 @@ def _cmd_casework_open(session: SessionContext, args: list[str]) -> str:
 
 
 def _cmd_casework_status(session: SessionContext, args: list[str]) -> str:
-    if len(args) != 2:
-        raise SuiteError("usage: status <case-id> <new-status>")
     workspace = _session_workspace(session)
+    case_id, rest = _casework_resolve_case(session, workspace, args, "status [case-id] <new-status>", params=1)
+    if len(rest) != 1:
+        raise SuiteError("usage: status [case-id] <new-status>")
     case = casework_cases.transition_status(
-        workspace, args[0], args[1], _casework_actor(session)
+        workspace, case_id, rest[0], _casework_actor(session)
     )
     suffix = f" (closed {case.closed_utc})" if case.closed_utc else ""
     return f"{case.id}: status -> {case.status}{suffix}"
 
 
 def _cmd_casework_categorize(session: SessionContext, args: list[str]) -> str:
-    if len(args) != 2:
-        raise SuiteError("usage: categorize <case-id> <category-id>")
     workspace = _session_workspace(session)
-    case, changed = casework_cases.attach_category(workspace, args[0], args[1])
+    case_id, rest = _casework_resolve_case(session, workspace, args, "categorize [case-id] <category-id>", params=1)
+    if len(rest) != 1:
+        raise SuiteError("usage: categorize [case-id] <category-id>")
+    case, changed = casework_cases.attach_category(workspace, case_id, rest[0])
     verb = "categorized" if changed else "already categorized"
-    return f"{case.id}: {verb} as {args[1]}"
+    return f"{case.id}: {verb} as {rest[0]}"
 
 
 def _cmd_casework_classify(session: SessionContext, args: list[str]) -> str:
-    if len(args) != 2:
-        raise SuiteError("usage: classify <case-id> <taxonomy-path>")
     workspace = _session_workspace(session)
-    case, changed = casework_cases.attach_taxonomy(workspace, args[0], args[1])
+    case_id, rest = _casework_resolve_case(session, workspace, args, "classify [case-id] <taxonomy-path>", params=1)
+    if len(rest) != 1:
+        raise SuiteError("usage: classify [case-id] <taxonomy-path>")
+    case, changed = casework_cases.attach_taxonomy(workspace, case_id, rest[0])
     verb = "classified" if changed else "already classified"
-    return f"{case.id}: {verb} under {args[1]}"
+    return f"{case.id}: {verb} under {rest[0]}"
 
 
 def _cmd_casework_link(session: SessionContext, args: list[str]) -> str:
-    if len(args) < 3:
-        raise SuiteError(
-            "usage: link <case-id> subject|vehicle|case <entity-id> [role...]"
-        )
     workspace = _session_workspace(session)
-    case_id, entity_type, entity_id = args[:3]
-    role = " ".join(args[3:])
+    case_id, rest = _casework_resolve_case(
+        session, workspace, args, "link [case-id] subject|vehicle|case <entity-id> [role...]"
+    )
+    if len(rest) < 2:
+        raise SuiteError(
+            "usage: link [case-id] subject|vehicle|case <entity-id> [role...]"
+        )
+    entity_type, entity_id = rest[:2]
+    role = " ".join(rest[2:])
     registered = casework_entities.append_link(
         workspace, case_id, entity_type, entity_id, role
     )
@@ -911,14 +982,15 @@ def _cmd_casework_links(session: SessionContext, args: list[str]) -> str:
 
 
 def _cmd_casework_event(session: SessionContext, args: list[str]) -> str:
-    if len(args) < 3:
-        raise SuiteError("usage: event <case-id> <event-type> <detail...>")
     workspace = _session_workspace(session)
+    case_id, rest = _casework_resolve_case(session, workspace, args, "event [case-id] <event-type> <detail...>")
+    if len(rest) < 2:
+        raise SuiteError("usage: event [case-id] <event-type> <detail...>")
     casework_cases.append_event(
-        workspace, args[0], actor=_casework_actor(session),
-        event_type=args[1], detail=" ".join(args[2:]),
+        workspace, case_id, actor=_casework_actor(session),
+        event_type=rest[0], detail=" ".join(rest[1:]),
     )
-    return f"event logged on {args[0]} ({args[1]})"
+    return f"event logged on {case_id} ({rest[0]})"
 
 
 def _cmd_casework_synopsis(session: SessionContext, args: list[str]) -> str:
@@ -961,43 +1033,50 @@ def _cmd_casework_inbox(session: SessionContext, args: list[str]) -> str:
 
 
 def _cmd_casework_file(session: SessionContext, args: list[str]) -> str:
-    if not args:
-        raise SuiteError("usage: file <case-id> [name...]  (no names = file everything)")
     workspace = _session_workspace(session)
+    case_id, names = _casework_resolve_case(session, workspace, args, "file [case-id] [name...]")
     filed = casework_intake.file_evidence(
-        workspace, args[0], args[1:], actor=_casework_actor(session)
+        workspace, case_id, names, actor=_casework_actor(session)
     )
-    lines = [f"filed {len(filed)} item(s) into {args[0]}'s exhibits:"]
+    lines = [f"filed {len(filed)} item(s) into {case_id}'s exhibits:"]
     lines += [f"  {name}" for name in filed]
     lines.append("manifest + custody log updated (COLLECTED, hash-anchored)")
+    lines.append(f"next: synopsis {case_id}")
     return "\n".join(lines)
 
 
 def _cmd_casework_statement(session: SessionContext, args: list[str]) -> str:
-    if len(args) < 4:
-        raise SuiteError(
-            "usage: statement <case-id> <statement-id> <interviewee> <role> [notes...]"
-        )
     workspace = _session_workspace(session)
+    case_id, rest = _casework_resolve_case(
+        session, workspace, args,
+        "statement [case-id] <statement-id> <interviewee> <role> [notes...]",
+    )
+    if len(rest) < 3:
+        raise SuiteError(
+            "usage: statement [case-id] <statement-id> <interviewee> <role> [notes...]"
+        )
     statement = casework_statements.record_statement(
-        workspace, args[0], args[1],
-        interviewee=args[2], role=args[3], notes=" ".join(args[4:]),
+        workspace, case_id, rest[0],
+        interviewee=rest[1], role=rest[2], notes=" ".join(rest[3:]),
         actor=_casework_actor(session),
     )
     return (
-        f"recorded statement {statement.statement_id} on {args[0]} "
+        f"recorded statement {statement.statement_id} on {case_id} "
         f"({statement.interviewee}, {statement.role}) — status: recorded"
     )
 
 
 def _cmd_casework_statement_sign(session: SessionContext, args: list[str]) -> str:
-    if len(args) != 2:
-        raise SuiteError("usage: statement-sign <case-id> <statement-id>")
     workspace = _session_workspace(session)
-    statement = casework_statements.sign_statement(
-        workspace, args[0], args[1], actor=_casework_actor(session)
+    case_id, rest = _casework_resolve_case(
+        session, workspace, args, "statement-sign [case-id] <statement-id>", params=1
     )
-    return f"statement {statement.statement_id} on {args[0]} marked signed"
+    if len(rest) != 1:
+        raise SuiteError("usage: statement-sign [case-id] <statement-id>")
+    statement = casework_statements.sign_statement(
+        workspace, case_id, rest[0], actor=_casework_actor(session)
+    )
+    return f"statement {statement.statement_id} on {case_id} marked signed"
 
 
 def _cmd_casework_statements(session: SessionContext, args: list[str]) -> str:
@@ -1041,8 +1120,8 @@ CASEWORK_TOOL = Tool(
     commands=(
         Command(
             name="init",
-            usage="init",
-            summary="create the workspace layout at the session workspace "
+            usage="init [workspace-dir]",
+            summary="create the workspace layout (optionally creating and setting the directory first) "
             "(with starter config)",
             handler=_cmd_casework_init,
         ),
@@ -1067,7 +1146,7 @@ CASEWORK_TOOL = Tool(
         ),
         Command(
             name="status",
-            usage="status <case-id> <new-status>",
+            usage="status [case-id] <new-status>",
             summary="advance a case's status (draft -> pending -> submitted "
             "-> referred -> closed)",
             handler=_cmd_casework_status,
@@ -1079,19 +1158,19 @@ CASEWORK_TOOL = Tool(
         ),
         Command(
             name="categorize",
-            usage="categorize <case-id> <category-id>",
+            usage="categorize [case-id] <category-id>",
             summary="attach a category defined in config/categories.csv",
             handler=_cmd_casework_categorize,
         ),
         Command(
             name="classify",
-            usage="classify <case-id> <taxonomy-path>",
+            usage="classify [case-id] <taxonomy-path>",
             summary="attach a taxonomy path defined in config/taxonomy.csv",
             handler=_cmd_casework_classify,
         ),
         Command(
             name="link",
-            usage="link <case-id> subject|vehicle|case <entity-id> [role...]",
+            usage="link [case-id] subject|vehicle|case <entity-id> [role...]",
             summary="associate an entity with a case (unknown subjects and "
             "vehicles are auto-registered)",
             handler=_cmd_casework_link,
@@ -1109,7 +1188,7 @@ CASEWORK_TOOL = Tool(
         ),
         Command(
             name="event",
-            usage="event <case-id> <event-type> <detail...>",
+            usage="event [case-id] <event-type> <detail...>",
             summary="append an event to the case's append-only log "
             "(actor comes from `set actor`)",
             handler=_cmd_casework_event,
@@ -1137,20 +1216,20 @@ CASEWORK_TOOL = Tool(
         ),
         Command(
             name="file",
-            usage="file <case-id> [name...]",
+            usage="file [case-id] [name...]",
             summary="file inbox items into a case's exhibits: moved, "
             "manifested, and custody-logged as COLLECTED (no names = all)",
             handler=_cmd_casework_file,
         ),
         Command(
             name="statement",
-            usage="statement <case-id> <statement-id> <interviewee> <role> [notes...]",
+            usage="statement [case-id] <statement-id> <interviewee> <role> [notes...]",
             summary="record an interview statement (status: recorded)",
             handler=_cmd_casework_statement,
         ),
         Command(
             name="statement-sign",
-            usage="statement-sign <case-id> <statement-id>",
+            usage="statement-sign [case-id] <statement-id>",
             summary="mark a recorded statement signed (append-only: a new "
             "row, never an edit)",
             handler=_cmd_casework_statement_sign,

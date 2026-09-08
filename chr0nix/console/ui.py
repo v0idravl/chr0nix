@@ -37,7 +37,8 @@ MIN_LINES = 20
 
 _WELCOME = (
     f"chr0nix console {__version__} — the investigative-documentation suite\n"
-    "type `help` for commands; `show tools` to see the suite; `exit` to leave"
+    "type `help` for commands; `show tools` to see the suite; `exit` to leave\n"
+    "quickstart: use casework · init <workspace-dir> · set actor <name> · new <case-id> <title>"
 )
 
 #: Color pair IDs, assigned in ``_init_colors``. Pair 0 is curses'
@@ -87,15 +88,29 @@ def _line_attr(text: str) -> int:
 
 
 def _status_text(session: SessionContext) -> str:
-    def short(path, fallback="-"):
-        return str(path) if path is not None else fallback
+    """The status bar: what the next command will touch, before it runs.
 
-    return (
-        f" chr0nix console | tool: {session.active_tool or '-'} "
-        f"| evidence: {short(session.evidence_dir)} "
-        f"| manifest: {short(session.manifest_path)} "
-        f"| log: {short(session.custody_log)} "
-    )
+    Shown fields follow the session's center of gravity: the cust0dia
+    paths matter while doing evidence work, the workspace and active
+    case matter while doing casework — show whichever is set, compactly
+    (basenames for paths), so the bar stays readable at 80 columns.
+    """
+
+    def base(path):
+        return path.name if path is not None else None
+
+    parts = [f"tool: {session.active_tool or '-'}"]
+    if session.active_case is not None:
+        parts.append(f"case: {session.active_case}")
+    if session.workspace is not None:
+        parts.append(f"ws: {base(session.workspace)}")
+    if session.evidence_dir is not None:
+        parts.append(f"evidence: {base(session.evidence_dir)}")
+    if session.manifest_path is not None:
+        parts.append(f"manifest: {base(session.manifest_path)}")
+    if session.custody_log is not None:
+        parts.append(f"log: {base(session.custody_log)}")
+    return " chr0nix | " + " | ".join(parts) + " "
 
 
 def _wrap(text: str, width: int) -> list[str]:

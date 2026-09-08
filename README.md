@@ -260,18 +260,31 @@ but linkable when they share an entity. A workspace (created with
 ```
 
 ```text
-chr0nix:casework > set workspace /cases/2026 && init
+chr0nix > use casework
+chr0nix:casework > init /cases/2026            # creates + sets + initializes
+chr0nix:casework > set actor John Doe
 chr0nix:casework > new case-2026-014 LP office theft
-chr0nix:casework > classify case-2026-014 external-theft/method/concealment
-chr0nix:casework > inbox                          # 2 unfiled item(s)
-chr0nix:casework > file case-2026-014             # moved, manifested, custody-logged
-chr0nix:casework > link case-2026-014 subject subj-001 suspect
-chr0nix:casework > links case-2026-014            # associated cases, with reasons
-chr0nix:casework > statement case-2026-014 stmt-001 "J. Doe" witness saw subject
-chr0nix:casework > statement-sign case-2026-014 stmt-001   # YELLOW — attested
-chr0nix:casework > status case-2026-014 pending
-chr0nix:casework > synopsis case-2026-014         # regenerated, deterministic
+chr0nix:casework > classify external-theft/method/concealment
+chr0nix:casework > inbox                       # 2 unfiled item(s)
+chr0nix:casework > file                        # moved, manifested, custody-logged
+chr0nix:casework > link subject subj-001 suspect
+chr0nix:casework > links                       # associated cases, with reasons
+chr0nix:casework > statement stmt-001 "John Doe" witness saw subject
+chr0nix:casework > statement-sign stmt-001     # YELLOW — attested
+chr0nix:casework > status pending
+chr0nix:casework > synopsis                    # regenerated, deterministic
 ```
+
+The workflow is built to be self-explanatory: `init <dir>` is a
+one-step bootstrap (creates the directory, points the session at it,
+initializes it); once a case is active, every case-acting command
+defaults to it — the case-id is always accepted but rarely needed, and
+the output always echoes the case acted on so a default is never
+silent. Milestone commands end with a `next:` hint, typing another
+tool's command answers with "`new` is a casework command — use
+casework first" rather than a dead end, and the status bar always
+shows the tool, active case, and workspace you are about to touch.
+(Explicit `status <case-id> …` forms still work everywhere.)
 
 Cases follow `draft → pending → submitted → referred → closed`
 (forward-only; `submitted`/`referred` are YELLOW). Associations surface

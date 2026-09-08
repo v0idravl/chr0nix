@@ -57,7 +57,7 @@ Log a custody event, anchored to the exhibit's hash from the manifest:
 ```bash
 python -m cust0dia custody out/demo/manifest.json out/demo/custody-log.csv \
     --exhibit exhibit-001_interview-notes.txt \
-    --actor "A. Rivera" --action COLLECTED \
+    --actor "John Doe" --action COLLECTED \
     --notes "Collected from LP office, sealed in evidence bag 14."
 ```
 
@@ -71,7 +71,7 @@ python -m chr0nix console
 chr0nix > use cust0dia
 chr0nix:cust0dia > set evidence examples/cust0dia/case-2026-014
 chr0nix:cust0dia > set output out/demo
-chr0nix:cust0dia > set actor A. Rivera
+chr0nix:cust0dia > set actor John Doe
 chr0nix:cust0dia > run                          # builds manifest.csv + manifest.json
 chr0nix:cust0dia > show exhibits
 chr0nix:cust0dia > log exhibit-001_interview-notes.txt COLLECTED sealed in bag 14
@@ -220,7 +220,7 @@ event, not a footnote.
 python -m cust0dia custody /cases/2026-014/documentation/manifest.json \
     /cases/2026-014/documentation/custody-log.csv \
     --exhibit exhibit-002_incident-report.txt \
-    --actor "A. Rivera" --action TRANSFERRED \
+    --actor "John Doe" --action TRANSFERRED \
     --notes "Handed to D. Okafor, HQ evidence locker, signature on file."
 ```
 

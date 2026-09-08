@@ -571,7 +571,7 @@ class RunTests(CaseworkTestCase):
         )
         output = dispatch(self.session, "help")
         self.assertIn("new <case-id> <title...>", output)
-        self.assertIn("classify <case-id> <taxonomy-path>", output)
+        self.assertIn("classify [case-id] <taxonomy-path>", output)
 
 
 class SmokeWorkflowTests(CaseworkTestCase):

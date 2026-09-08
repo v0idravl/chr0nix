@@ -85,7 +85,10 @@ class IntakeTests(unittest.TestCase):
 
     def test_file_into_unknown_case_is_error(self):
         self.drop("shot.png")
-        with self.assertRaisesRegex(SuiteError, "unknown case"):
+        # `file` is variable-arity, so an unknown case-id is absorbed as
+        # an inbox name (the echoed output makes the slip visible) —
+        # the clean error is that no such item exists.
+        with self.assertRaisesRegex(SuiteError, "no such inbox item"):
             dispatch(self.session, "file case-9999-999")
         # nothing moved on failure
         self.assertTrue((self.inbox / "shot.png").is_file())

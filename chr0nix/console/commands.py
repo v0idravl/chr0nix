@@ -335,6 +335,20 @@ def _dispatch(session: SessionContext, line: str, *, attested: bool) -> str:
         return _cmd_run(session, rest, attested=attested, raw_line=stripped)
     handler = _CORE_HANDLERS.get(head)
     if handler is None:
+        # Affinity: if another registered tool owns this command, say
+        # so — "unknown command" is a dead end, while "'new' is a
+        # casework command — use casework first" is a signpost.
+        for candidate in tools.REGISTRY:
+            if candidate is tool:
+                continue
+            for command in candidate.commands:
+                if command.name == head or (
+                    len(tokens) >= 2 and command.name == " ".join(tokens[:2])
+                ):
+                    raise SuiteError(
+                        f"{command.name!r} is a {candidate.name} command — "
+                        f"`use {candidate.name}` first"
+                    )
         raise SuiteError(f"unknown command {head!r} (try: help)")
     return handler(session, rest)
 

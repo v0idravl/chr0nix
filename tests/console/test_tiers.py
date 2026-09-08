@@ -228,10 +228,10 @@ class VisibilityTests(TierTestCase):
     def test_help_annotates_yellow_commands(self):
         output = dispatch(self.session, "help")
         status_line = next(
-            line for line in output.splitlines() if "status <case-id>" in line
+            line for line in output.splitlines() if "status [case-id]" in line
         )
         self.assertIn("[yellow]", status_line)
-        link_line = next(line for line in output.splitlines() if "link <case-id>" in line)
+        link_line = next(line for line in output.splitlines() if "link [case-id]" in line)
         self.assertIn("[yellow]", link_line)
         # A GREEN command carries no marker.
         cases_line = next(line for line in output.splitlines() if "  cases" in line)
