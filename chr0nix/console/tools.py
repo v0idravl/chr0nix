@@ -1,11 +1,11 @@
 """Tool registry: the console's plugin surface.
 
 A *tool* is one investigative utility exposed through the console. All
-five suite tools are registered here: cust0dia (manifest / verify /
+six suite tools are registered here: cust0dia (manifest / verify /
 custody), timeline (multi-source UTC timelines), h4ndl3 (identifier
 research worksheets and corroborated findings), m3talex (image
-metadata extraction), and casework (case workspaces: cases, entities,
-and associations).
+metadata extraction), casework (case workspaces: cases, entities, and
+associations), and guide (the offline research-method knowledge base).
 
 The registry is deliberately **static**: a tuple written out in source,
 not a discovery mechanism. There is no scanning of directories for
@@ -49,6 +49,7 @@ from ..casework import entities as casework_entities
 from ..casework import synopsis as casework_synopsis
 from ..casework import workspace as casework_workspace
 from ..errors import SuiteError
+from ..guide import methods as guide_methods
 from ..timeline import cli as timeline_cli
 from ..timeline import manifest as timeline_manifest
 from ..timeline import normalize as timeline_normalize
@@ -1062,6 +1063,131 @@ CASEWORK_TOOL = Tool(
     ),
 )
 
+# ---------------------------------------------------------------------------
+# guide — the offline research-method knowledge base.
+# ---------------------------------------------------------------------------
+
+
+def _guide_method_tier(args: list[str]) -> str:
+    """``hint``/``capture`` are YELLOW only for person-focused methods.
+
+    The method id is the first argument; unknown ids resolve GREEN so
+    they fail with the clean ``unknown method`` error, not a spurious
+    challenge — the same convention as the casework tiers.
+    """
+    if args and guide_methods.is_yellow(args[0]):
+        return tiers.YELLOW
+    return tiers.GREEN
+
+
+def _cmd_guide_methods(session: SessionContext, args: list[str]) -> str:
+    if args:
+        raise SuiteError("usage: methods")
+    return guide_methods.render_listing()
+
+
+def _cmd_guide_hint(session: SessionContext, args: list[str]) -> str:
+    if not args:
+        raise SuiteError("usage: hint <method-id> [query...]")
+    method = guide_methods.lookup_method(args[0])
+    query = " ".join(args[1:]).strip() or None
+    return guide_methods.render_hint(method, query)
+
+
+def _cmd_guide_capture(session: SessionContext, args: list[str]) -> str:
+    """Record a method's findings into the active case's event log.
+
+    The findings land in the same append-only events.csv as every other
+    case event (event_type ``osint-finding``), so what the investigator
+    learned sits in the same record as how the case moved. Field names
+    are validated against the method's capture vocabulary — structured
+    findings stay reviewable.
+    """
+    if len(args) < 2:
+        raise SuiteError("usage: capture <method-id> <field>=<value> [...]")
+    method = guide_methods.lookup_method(args[0])
+    workspace = _session_workspace(session)
+    if session.active_case is None:
+        raise SuiteError(
+            "capture records into the active case — open one first "
+            "(use: open <case-id>)"
+        )
+    actor = _casework_actor(session)
+
+    pairs: list[tuple[str, str]] = []
+    for token in args[1:]:
+        field, separator, value = token.partition("=")
+        if not separator:
+            raise SuiteError(
+                f"expected <field>=<value>, got {token!r} "
+                f"(fields: {', '.join(method.capture_fields)})"
+            )
+        if field not in method.capture_fields:
+            raise SuiteError(
+                f"unknown field {field!r} for {method.id}; "
+                f"capture fields: {', '.join(method.capture_fields)}"
+            )
+        pairs.append((field, value.strip()))
+
+    detail = f"{method.id}: " + "; ".join(f"{field}={value}" for field, value in pairs)
+    casework_cases.append_event(
+        workspace, session.active_case,
+        actor=actor, event_type="osint-finding", detail=detail,
+    )
+    lines = [f"recorded osint-finding on {session.active_case} ({method.id})"]
+    if method.related:
+        lines.append(
+            "related methods: "
+            + ", ".join(guide_methods.lookup_method(mid).id for mid in method.related)
+        )
+    return "\n".join(lines)
+
+
+def _run_guide(session: SessionContext) -> str:
+    """The catalogue plus the two commands that drive it."""
+    return (
+        guide_methods.render_listing()
+        + f"\n{len(guide_methods.METHODS)} method(s) — "
+        "hint <method-id> [query...] for guidance; "
+        "capture <method-id> <field>=<value> to record findings into the active case"
+    )
+
+
+GUIDE_TOOL = Tool(
+    name="guide",
+    summary="offline research-method knowledge base (browser handoffs)",
+    run=_run_guide,
+    commands=(
+        Command(
+            name="methods",
+            usage="methods",
+            summary="list all research methods, grouped by category",
+            handler=_cmd_guide_methods,
+        ),
+        Command(
+            name="hint",
+            usage="hint <method-id> [query...]",
+            summary="print a method's guidance: steps, browser handoff URLs "
+            "(rendered with query if given), capture fields",
+            handler=_cmd_guide_hint,
+            # YELLOW for person-focused methods — see _guide_method_tier.
+            tier=_guide_method_tier,
+            tier_rationale="person-focused research on an identifier — "
+            "lawful only for authorized casework",
+        ),
+        Command(
+            name="capture",
+            usage="capture <method-id> <field>=<value> [...]",
+            summary="record a method's findings into the active case's "
+            "event log",
+            handler=_cmd_guide_capture,
+            tier=_guide_method_tier,
+            tier_rationale="recording person-focused research findings about "
+            "an identifier — lawful only for authorized casework",
+        ),
+    ),
+)
+
 #: The tools the console can run, in display order. This tuple is the
 #: entire plugin mechanism — see the module docstring for why it is a
 #: static list and not a discovery system.
@@ -1071,6 +1197,7 @@ REGISTRY: tuple[Tool, ...] = (
     H4NDL3_TOOL,
     M3TALEX_TOOL,
     CASEWORK_TOOL,
+    GUIDE_TOOL,
 )
 
 

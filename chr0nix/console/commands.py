@@ -23,7 +23,8 @@ Active tools add their own commands on top (cust0dia adds
 and ``schema``; h4ndl3 adds ``worksheet``, ``add``, ``validate``, and
 ``report``; m3talex adds ``scan``; casework adds ``init``, ``new``,
 ``cases``, ``open``, ``status``, ``categorize``, ``classify``,
-``link``, ``links``, ``event``, ``synopsis``, and ``show case``).
+``link``, ``links``, ``event``, ``synopsis``, and ``show case``;
+guide adds ``methods``, ``hint``, and ``capture``).
 Parsing uses :func:`shlex.split`: quoted arguments work, and there is
 no shell — an evidence console has no business evaluating command
 lines.
