@@ -1,4 +1,4 @@
-"""Tests for chr0nix.manifest: the shared suite manifest format."""
+"""Tests for chr0nix.timeline.manifest: the shared suite manifest format."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from chr0nix import manifest
+from chr0nix.timeline import manifest
 
 HASHED_AT = datetime(2026, 8, 31, 12, 0, 0, tzinfo=timezone.utc)
 

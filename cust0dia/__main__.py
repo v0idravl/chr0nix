@@ -1,4 +1,4 @@
-"""Entry point for ``python -m chr0nix``.
+"""Entry point for ``python -m cust0dia``.
 
 Kept to three lines of substance: all behavior lives in ``cli.main``,
 which returns an exit code rather than exiting, so the whole CLI is

@@ -1,18 +1,19 @@
-"""The one exception type chr0nix raises for expected failures.
+"""Suite-level error types.
 
-Design decision: a single exception class keeps the CLI's error handling
-honest and boring. Anything that is the user's fault (a missing file, an
-undeclared timezone, an unsafe output path) is raised as ``Chr0nixError``
-and reported as a clean ``chr0nix: error: ...`` message with a nonzero
-exit code. Anything else that escapes is a genuine bug and is allowed to
-traceback — bugs should be loud, not disguised as usage errors.
+Kept in their own module (rather than in ``chr0nix/__init__.py``) so
+every layer of the shell — CLI, console, session — can import them
+without pulling in the package root, and so the module packages keep
+their own error types (e.g. :class:`cust0dia.Cust0diaError`) beside
+their own code.
 """
 
 
-class Chr0nixError(Exception):
-    """A user-facing failure: bad input, unsafe paths, undeclared timezones.
+class SuiteError(Exception):
+    """A user-facing operational error.
 
-    The message is written for the investigator at a terminal, not for a
-    developer in a debugger: it states what is wrong, where, and usually
-    what to do about it.
+    Raised for any expected failure mode in the suite shell: unknown
+    console commands, invalid session options, unsafe paths, a terminal
+    that cannot host the UI. The CLI and console UI layers catch this,
+    print a clean one-line message, and exit nonzero — no tracebacks
+    for conditions that are the user's to fix.
     """

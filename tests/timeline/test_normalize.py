@@ -1,4 +1,4 @@
-"""Tests for chr0nix.normalize: parsing, DST edges, and flag policy.
+"""Tests for chr0nix.timeline.normalize: parsing, DST edges, and flag policy.
 
 The DST cases pin the exact documented policy: fall-back folds are
 placed at the first occurrence and flagged; spring-forward gaps are
@@ -20,9 +20,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from zoneinfo import ZoneInfo
 
-from chr0nix import normalize
-from chr0nix.errors import Chr0nixError
-from chr0nix.schema import SourceSpec
+from chr0nix.timeline import normalize
+from chr0nix.timeline.errors import Chr0nixError
+from chr0nix.timeline.schema import SourceSpec
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 

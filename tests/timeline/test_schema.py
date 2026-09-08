@@ -1,11 +1,11 @@
-"""Tests for chr0nix.schema: the input contract and identifier safety."""
+"""Tests for chr0nix.timeline.schema: the input contract and identifier safety."""
 
 from __future__ import annotations
 
 import unittest
 
-from chr0nix import schema
-from chr0nix.errors import Chr0nixError
+from chr0nix.timeline import schema
+from chr0nix.timeline.errors import Chr0nixError
 
 
 class SourceNameTests(unittest.TestCase):

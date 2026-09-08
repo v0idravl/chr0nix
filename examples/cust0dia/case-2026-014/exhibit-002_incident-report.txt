@@ -1,0 +1,22 @@
+CASE 2026-014 — INCIDENT REPORT
+===============================
+
+Incident type:  External theft (shoplifting)
+Date/Time:      2026-08-24, approx. 14:40 local
+Location:       Store #118, aisle 7 -> main exit
+Reported by:    Floor manager on duty
+
+Narrative:
+Subject selected merchandise in aisle 7, concealed items in a
+reusable bag, and exited without payment. Subject was stopped
+outside the exit by loss prevention, merchandise recovered intact.
+Total recovered value: $84.17. Local PD notified; subject released
+pending charges per store policy.
+
+Evidence collected:
+  1. Witness interview notes (exhibit-001)
+  2. This incident report (exhibit-002)
+  3. Register transaction log export (exhibit-003)
+  4. Photo index of recovered merchandise (photos/)
+
+This document is a fictional training/demo fixture.

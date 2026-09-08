@@ -1,28 +1,33 @@
-"""chr0nix — UTC-normalized, hash-manifested exhibit timelines.
+"""chr0nix — a consolidated suite of investigative-documentation tools.
 
-chr0nix merges incident exports from multiple systems (AP case management,
-CCTV bookmark logs, POS back-office logs, officer notes) into a single,
-chronologically ordered exhibit timeline. Every row is traceable to its
-source file and row number, every ambiguous timestamp is flagged rather
-than silently guessed, and every input is fingerprinted into a SHA-256
-manifest in the shared suite format.
+chr0nix is one repository containing the suite shell (this package) and
+the module packages that do the evidentiary work:
 
-The package is deliberately small and standard-library only so that any
-reviewer — a hiring manager, a supervisor, opposing counsel's expert —
-can read it end-to-end and verify exactly what it does to the evidence
-(nothing) and to the record (normalize, order, cite, hash).
+- :mod:`cust0dia` — recursive SHA-256 exhibit manifests and append-only
+  chain-of-custody logs.
+- :mod:`chr0nix.timeline` — normalized, cross-source event timelines.
+- ``h4ndl3`` — file-handle and artifact inspection.
+- ``m3talex`` — image metadata extraction and anomaly reporting.
 
-Modules
--------
-errors      : the single exception type the CLI surfaces as clean errors.
-timeutil    : UTC clock access and ISO-8601/Z formatting helpers.
-schema      : the input CSV contract and per-row validation.
-normalize   : timestamp parsing and timezone/DST normalization.
-timeline    : deterministic merge-sort of events from all sources.
-render      : CSV and Markdown renderers for the unified timeline.
-manifest    : SHA-256 input manifest in the shared suite format.
-cli         : argparse wiring, path-safety enforcement, exit codes.
+This package is the shell: the ``chr0nix`` command-line entry point and
+the interactive console framework (:mod:`chr0nix.console`) that the
+module packages plug into. The console never reimplements evidence
+logic — every read and every write flows through the module packages'
+own cores.
+
+Design decisions that apply across the whole suite:
+
+- **Standard library only.** A tool that may be scrutinized in court
+  should have zero dependency surface.
+- **Read-only on evidence.** No tool in the suite modifies, renames, or
+  deletes anything inside an evidence directory, and each refuses to
+  write its own outputs there. Evidence is only ever *read*.
+- **Strictly offline.** No network calls of any kind.
+- **Court-auditable.** Behavior is documented in the source, output is
+  deterministic, and the set of code that can execute is exactly the
+  set of code a reviewer can read.
 """
 
 __version__ = "1.0.0"
+
 __all__ = ["__version__"]

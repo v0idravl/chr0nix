@@ -1,4 +1,4 @@
-"""Tests for chr0nix.render: CSV and Markdown output shape."""
+"""Tests for chr0nix.timeline.render: CSV and Markdown output shape."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from chr0nix import render
-from chr0nix.normalize import FLAG_AMBIGUOUS, Event
+from chr0nix.timeline import render
+from chr0nix.timeline.normalize import FLAG_AMBIGUOUS, Event
 
 T0 = datetime(2025, 11, 2, 8, 31, 5, tzinfo=timezone.utc)
 T1 = datetime(2025, 11, 2, 23, 59, 59, tzinfo=timezone.utc)

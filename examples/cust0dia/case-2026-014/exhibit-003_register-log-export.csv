@@ -1,0 +1,5 @@
+transaction_id,register,timestamp_local,cashier,total_usd,voided
+TXN-88412,3,2026-08-24T14:12:03,EMP-221,23.50,false
+TXN-88413,3,2026-08-24T14:19:47,EMP-221,11.99,false
+TXN-88414,1,2026-08-24T14:31:15,EMP-105,67.20,false
+TXN-88415,3,2026-08-24T14:38:52,EMP-221,8.75,false

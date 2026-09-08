@@ -1,4 +1,4 @@
-"""Tests for chr0nix.cli: end-to-end runs and the safety boundary.
+"""Tests for chr0nix.timeline.cli: end-to-end runs and the safety boundary.
 
 These drive ``cli.main`` directly with tempdir fixtures: full build
 runs, refusal to write into evidence directories, --strict behavior,
@@ -17,7 +17,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from chr0nix import cli
+from chr0nix.timeline import cli
 
 HEADER = "event_id,timestamp,event_type,description\n"
 

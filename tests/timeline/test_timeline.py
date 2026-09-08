@@ -1,12 +1,12 @@
-"""Tests for chr0nix.timeline: merge ordering and duplicate detection."""
+"""Tests for chr0nix.timeline.timeline: merge ordering and duplicate detection."""
 
 from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
 
-from chr0nix import timeline
-from chr0nix.normalize import Event
+from chr0nix.timeline import timeline
+from chr0nix.timeline.normalize import Event
 
 
 def _event(source: str, row: int, utc: datetime, event_id: str = "E") -> Event:
