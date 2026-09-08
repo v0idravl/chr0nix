@@ -46,6 +46,8 @@ from .. import __version__ as suite_version
 from .. import tiers
 from ..casework import cases as casework_cases
 from ..casework import entities as casework_entities
+from ..casework import intake as casework_intake
+from ..casework import statements as casework_statements
 from ..casework import synopsis as casework_synopsis
 from ..casework import workspace as casework_workspace
 from ..errors import SuiteError
@@ -946,6 +948,73 @@ def _cmd_casework_show(session: SessionContext, args: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _cmd_casework_inbox(session: SessionContext, args: list[str]) -> str:
+    if args:
+        raise SuiteError("usage: inbox")
+    workspace = _session_workspace(session)
+    items = casework_intake.list_inbox(workspace)
+    if not items:
+        return f"inbox is empty (drop files into {workspace / 'inbox'})"
+    lines = [f"{len(items)} unfiled item(s) in {workspace / 'inbox'}:"]
+    lines += [f"  {item}" for item in items]
+    return "\n".join(lines)
+
+
+def _cmd_casework_file(session: SessionContext, args: list[str]) -> str:
+    if not args:
+        raise SuiteError("usage: file <case-id> [name...]  (no names = file everything)")
+    workspace = _session_workspace(session)
+    filed = casework_intake.file_evidence(
+        workspace, args[0], args[1:], actor=_casework_actor(session)
+    )
+    lines = [f"filed {len(filed)} item(s) into {args[0]}'s exhibits:"]
+    lines += [f"  {name}" for name in filed]
+    lines.append("manifest + custody log updated (COLLECTED, hash-anchored)")
+    return "\n".join(lines)
+
+
+def _cmd_casework_statement(session: SessionContext, args: list[str]) -> str:
+    if len(args) < 4:
+        raise SuiteError(
+            "usage: statement <case-id> <statement-id> <interviewee> <role> [notes...]"
+        )
+    workspace = _session_workspace(session)
+    statement = casework_statements.record_statement(
+        workspace, args[0], args[1],
+        interviewee=args[2], role=args[3], notes=" ".join(args[4:]),
+        actor=_casework_actor(session),
+    )
+    return (
+        f"recorded statement {statement.statement_id} on {args[0]} "
+        f"({statement.interviewee}, {statement.role}) — status: recorded"
+    )
+
+
+def _cmd_casework_statement_sign(session: SessionContext, args: list[str]) -> str:
+    if len(args) != 2:
+        raise SuiteError("usage: statement-sign <case-id> <statement-id>")
+    workspace = _session_workspace(session)
+    statement = casework_statements.sign_statement(
+        workspace, args[0], args[1], actor=_casework_actor(session)
+    )
+    return f"statement {statement.statement_id} on {args[0]} marked signed"
+
+
+def _cmd_casework_statements(session: SessionContext, args: list[str]) -> str:
+    workspace = _session_workspace(session)
+    case_id = _casework_case_id(session, args, "statements [case-id]")
+    statements = casework_statements.list_statements(workspace, case_id)
+    if not statements:
+        return f"{case_id}: no statements recorded"
+    lines = [f"{'statement':<20}{'status':<10}{'interviewee':<24}role"]
+    for statement in statements:
+        lines.append(
+            f"{statement.statement_id:<20}{statement.status:<10}"
+            f"{statement.interviewee:<24}{statement.role}"
+        )
+    return "\n".join(lines)
+
+
 def _run_casework(session: SessionContext) -> str:
     """The case table plus a status-count summary of the whole workspace."""
     listing = _casework_cases_listing(session)
@@ -1059,6 +1128,42 @@ CASEWORK_TOOL = Tool(
             usage="show case [case-id]",
             summary="show a case's case.json fields and synopsis path",
             handler=_cmd_casework_show,
+        ),
+        Command(
+            name="inbox",
+            usage="inbox",
+            summary="list unfiled items in the workspace evidence inbox",
+            handler=_cmd_casework_inbox,
+        ),
+        Command(
+            name="file",
+            usage="file <case-id> [name...]",
+            summary="file inbox items into a case's exhibits: moved, "
+            "manifested, and custody-logged as COLLECTED (no names = all)",
+            handler=_cmd_casework_file,
+        ),
+        Command(
+            name="statement",
+            usage="statement <case-id> <statement-id> <interviewee> <role> [notes...]",
+            summary="record an interview statement (status: recorded)",
+            handler=_cmd_casework_statement,
+        ),
+        Command(
+            name="statement-sign",
+            usage="statement-sign <case-id> <statement-id>",
+            summary="mark a recorded statement signed (append-only: a new "
+            "row, never an edit)",
+            handler=_cmd_casework_statement_sign,
+            tier=tiers.YELLOW,
+            tier_rationale="claiming a signed statement exists is a "
+            "legally significant attestation",
+        ),
+        Command(
+            name="statements",
+            usage="statements [case-id]",
+            summary="list a case's statements with current status "
+            "(recorded / signed)",
+            handler=_cmd_casework_statements,
         ),
     ),
 )

@@ -214,7 +214,8 @@ what "running it" means:
 - **YELLOW** — lawful only under specific circumstances: identifier
   research tied to a person (h4ndl3 `worksheet` / `add`), associating a
   person across cases (casework `link ... subject`), attesting a case
-  to third parties (casework `status ... submitted|referred`), and
+  to third parties (casework `status ... submitted|referred`),
+  claiming a signed statement exists (casework `statement-sign`), and
   person-focused research guidance (guide `hint` / `capture` on the
   identifier-research methods).
 - **RED** — reserved; defined but currently assigned to nothing.
@@ -250,19 +251,26 @@ but linkable when they share an entity. A workspace (created with
 │                tree paths, e.g. external-theft/method/concealment)
 ├── entities/    subjects.csv, vehicles.csv, links.csv — the shared
 │                registry through which cases associate
+├── inbox/       evidence drop zone: dump screenshots/exports here,
+│                `file` them into a case
 ├── attest.csv   the tier-attestation log
 └── cases/<id>/  case.json · events.csv (append-only) · synopsis.txt
-                 (generated, never hand-edited)
+                 (generated) · exhibits/ with manifest.csv/json ·
+                 custody.csv · statements.csv
 ```
 
 ```text
 chr0nix:casework > set workspace /cases/2026 && init
 chr0nix:casework > new case-2026-014 LP office theft
 chr0nix:casework > classify case-2026-014 external-theft/method/concealment
+chr0nix:casework > inbox                          # 2 unfiled item(s)
+chr0nix:casework > file case-2026-014             # moved, manifested, custody-logged
 chr0nix:casework > link case-2026-014 subject subj-001 suspect
-chr0nix:casework > links case-2026-014        # associated cases, with reasons
+chr0nix:casework > links case-2026-014            # associated cases, with reasons
+chr0nix:casework > statement case-2026-014 stmt-001 "J. Doe" witness saw subject
+chr0nix:casework > statement-sign case-2026-014 stmt-001   # YELLOW — attested
 chr0nix:casework > status case-2026-014 pending
-chr0nix:casework > synopsis case-2026-014     # regenerated, deterministic
+chr0nix:casework > synopsis case-2026-014         # regenerated, deterministic
 ```
 
 Cases follow `draft → pending → submitted → referred → closed`
@@ -270,6 +278,16 @@ Cases follow `draft → pending → submitted → referred → closed`
 two ways, always with the reason shown: shared subjects/vehicles (the
 repeat-offender pattern) and direct case-to-case links. `synopsis`
 regenerates a standard-field-order case summary from the record.
+
+Evidence intake is the inbox workflow: drop loose files into
+`<workspace>/inbox/`, then `file <case-id>` moves them into the case's
+`exhibits/`, re-manifests the exhibits with cust0dia, and appends one
+hash-anchored `COLLECTED` custody row per item — loose bytes become
+recorded evidence in one step. Statements track interview statements
+per case: `statement` records one (who, role, notes), `statement-sign`
+marks it signed — append-only (a new row, never an edit) and
+YELLOW-tiered, since claiming a signed statement exists is a legally
+significant attestation.
 
 ### guide — offline research guidance
 
