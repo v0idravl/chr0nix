@@ -47,6 +47,7 @@ _PAIR_CHANGED = 2
 _PAIR_MISSING = 3
 _PAIR_EXTRA = 4
 _PAIR_ERROR = 5
+_PAIR_TIER = 6
 
 _STATUS_COLORS = {}
 
@@ -63,6 +64,7 @@ def _init_colors() -> None:
     curses.init_pair(_PAIR_MISSING, curses.COLOR_YELLOW, -1)
     curses.init_pair(_PAIR_EXTRA, curses.COLOR_CYAN, -1)
     curses.init_pair(_PAIR_ERROR, curses.COLOR_RED, -1)
+    curses.init_pair(_PAIR_TIER, curses.COLOR_YELLOW, -1)
     _STATUS_COLORS.update(
         {
             "OK": curses.color_pair(_PAIR_OK),
@@ -70,6 +72,8 @@ def _init_colors() -> None:
             "MISSING": curses.color_pair(_PAIR_MISSING),
             "EXTRA": curses.color_pair(_PAIR_EXTRA),
             "error": curses.color_pair(_PAIR_ERROR),
+            # YELLOW-tier challenge lines start with "YELLOW — ...".
+            "YELLOW": curses.color_pair(_PAIR_TIER),
         }
     )
 

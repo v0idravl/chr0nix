@@ -41,6 +41,10 @@ class CaseworkTestCase(unittest.TestCase):
     def new_case(self, case_id="case-2026-014", title="Fitting-room concealment"):
         return dispatch(self.session, f'new {case_id} "{title}"')
 
+    def ack(self, reason="authorized casework"):
+        """Confirm a pending YELLOW action (see tests/console/test_tiers.py)."""
+        return dispatch(self.session, f"ack {reason}")
+
     def case_json(self, case_id="case-2026-014"):
         path = self.workspace / "cases" / case_id / "case.json"
         return json.loads(path.read_text(encoding="utf-8"))
@@ -249,11 +253,14 @@ class StatusTransitionTests(CaseworkTestCase):
         self.assertIn("status-changed,draft -> pending", self.events_text())
 
     def test_forward_skips_are_allowed(self):
+        # `submitted` is YELLOW-tier: challenge, then ack.
         dispatch(self.session, "status case-2026-014 submitted")
+        self.ack()
         self.assertEqual(self.case_json()["status"], "submitted")
 
     def test_backward_transitions_rejected(self):
         dispatch(self.session, "status case-2026-014 submitted")
+        self.ack()
         with self.assertRaisesRegex(SuiteError, "only moves forward"):
             dispatch(self.session, "status case-2026-014 pending")
 
@@ -353,10 +360,13 @@ class LinkingTests(CaseworkTestCase):
         self.new_case()
         self.new_case("case-2026-015", "Refund abuse at register 3")
 
+    def link_subject(self, case_id, subject_id, *role):
+        """A subject link is YELLOW-tier: dispatch, then ack."""
+        dispatch(self.session, " ".join(["link", case_id, "subject", subject_id, *role]))
+        return self.ack()
+
     def test_link_auto_registers_unknown_subject(self):
-        output = dispatch(
-            self.session, "link case-2026-014 subject subj-001 repeat visitor"
-        )
+        output = self.link_subject("case-2026-014", "subj-001", "repeat visitor")
         self.assertIn("linked case-2026-014 -> subject subj-001", output)
         self.assertIn("auto-registered subject subj-001", output)
         subjects = (self.workspace / "entities" / "subjects.csv").read_text(
@@ -367,8 +377,8 @@ class LinkingTests(CaseworkTestCase):
         self.assertIn("case-2026-014,subject,subj-001,repeat visitor,", links)
 
     def test_link_known_subject_is_not_reregistered(self):
-        dispatch(self.session, "link case-2026-014 subject subj-001 repeat visitor")
-        output = dispatch(self.session, "link case-2026-015 subject subj-001")
+        self.link_subject("case-2026-014", "subj-001", "repeat visitor")
+        output = self.link_subject("case-2026-015", "subj-001")
         self.assertNotIn("auto-registered", output)
         subjects = (self.workspace / "entities" / "subjects.csv").read_text(
             encoding="utf-8"
@@ -377,8 +387,8 @@ class LinkingTests(CaseworkTestCase):
         self.assertEqual(len(rows), 1)
 
     def test_shared_subject_produces_association_both_ways(self):
-        dispatch(self.session, "link case-2026-014 subject subj-001")
-        dispatch(self.session, "link case-2026-015 subject subj-001")
+        self.link_subject("case-2026-014", "subj-001")
+        self.link_subject("case-2026-015", "subj-001")
         output = dispatch(self.session, "links case-2026-014")
         self.assertIn("case-2026-015", output)
         self.assertIn("shared subject subj-001", output)
@@ -415,16 +425,19 @@ class LinkingTests(CaseworkTestCase):
             dispatch(self.session, "link case-2026-014 case case-2099-999")
 
     def test_link_rejects_non_slug_entity_id(self):
+        # The challenge comes first (subject link); the ack re-runs the
+        # action and the slug error surfaces there.
+        dispatch(self.session, "link case-2026-014 subject SUBJ/001")
         with self.assertRaisesRegex(SuiteError, "slug-safe"):
-            dispatch(self.session, "link case-2026-014 subject SUBJ/001")
+            self.ack()
 
     def test_links_with_no_associations(self):
         output = dispatch(self.session, "links case-2026-014")
         self.assertIn("no associated cases", output)
 
     def test_links_defaults_to_active_case(self):
-        dispatch(self.session, "link case-2026-014 subject subj-001")
-        dispatch(self.session, "link case-2026-015 subject subj-001")
+        self.link_subject("case-2026-014", "subj-001")
+        self.link_subject("case-2026-015", "subj-001")
         dispatch(self.session, "open case-2026-015")
         output = dispatch(self.session, "links")
         self.assertIn("case-2026-014", output)
@@ -480,7 +493,9 @@ class SynopsisTests(CaseworkTestCase):
             "classify case-2026-014 external-theft/method/concealment/fitting-room",
         )
         dispatch(self.session, "link case-2026-014 subject subj-001")
+        self.ack()
         dispatch(self.session, "link case-2026-015 subject subj-001")
+        self.ack()
         dispatch(self.session, "status case-2026-014 pending")
 
     def synopsis_path(self):
@@ -570,13 +585,16 @@ class SmokeWorkflowTests(CaseworkTestCase):
         dispatch(self.session, "classify case-2026-014 external-theft/method/concealment")
         dispatch(self.session, "classify case-2026-015 internal-theft/method/refund-abuse")
         dispatch(self.session, "link case-2026-014 subject subj-001 seen twice before")
+        self.ack()
         dispatch(self.session, "link case-2026-015 subject subj-001")
+        self.ack()
         dispatch(self.session, "link case-2026-014 case case-2026-015 same subject")
         output = dispatch(self.session, "links case-2026-014")
         self.assertIn("shared subject subj-001", output)
         self.assertIn("direct link", output)
         dispatch(self.session, "status case-2026-014 pending")
         dispatch(self.session, "status case-2026-014 submitted")
+        self.ack()
         dispatch(self.session, "event case-2026-014 interview LP officer statement taken")
         output = dispatch(self.session, "synopsis case-2026-014")
         self.assertIn("Status:     submitted", output)

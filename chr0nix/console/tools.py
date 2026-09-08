@@ -43,6 +43,7 @@ from m3talex.report import write_batch_outputs, write_json_report
 from m3talex.safety import ensure_output_dir, validate_input_dir, validate_input_file
 
 from .. import __version__ as suite_version
+from .. import tiers
 from ..casework import cases as casework_cases
 from ..casework import entities as casework_entities
 from ..casework import synopsis as casework_synopsis
@@ -69,22 +70,37 @@ class Command:
     ``name`` may contain a space (e.g. ``"show exhibits"``); the
     dispatcher matches the longest known prefix of the input line, so
     tool commands can hang off core command words.
+
+    ``tier`` is the command's legal-risk tier (see
+    :mod:`chr0nix.tiers`): a constant, or a callable of the command's
+    arguments resolved at dispatch time. ``tier_rationale`` is the
+    "why it's yellow" sentence shown in the challenge; it is required
+    whenever the tier is or can be YELLOW, and unused for GREEN.
     """
 
     name: str
     usage: str
     summary: str
     handler: Handler
+    tier: tiers.TierSpec = tiers.GREEN
+    tier_rationale: str = ""
 
 
 @dataclass(frozen=True)
 class Tool:
-    """One investigative utility exposed through the console."""
+    """One investigative utility exposed through the console.
+
+    ``run_tier`` tiers the tool's primary action (what the core ``run``
+    command invokes) exactly as ``Command.tier`` tiers a command; it is
+    a constant because ``run`` takes no arguments.
+    """
 
     name: str
     summary: str
     run: Callable[[SessionContext], str]
     commands: tuple[Command, ...]
+    run_tier: str = tiers.GREEN
+    run_rationale: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +577,12 @@ H4NDL3_TOOL = Tool(
             summary="write a research worksheet into the output directory "
             "(default type: username; requires `set output`)",
             handler=_cmd_h4ndl3_worksheet,
+            # YELLOW: researching an identifier tied to a person is lawful
+            # only for authorized casework, so the operator acks it with a
+            # recorded reason.
+            tier=tiers.YELLOW,
+            tier_rationale="researching an identifier tied to a person — "
+            "lawful only for authorized casework",
         ),
         Command(
             name="add",
@@ -568,6 +590,11 @@ H4NDL3_TOOL = Tool(
             "<low|medium|high> [corroborating-urls...]",
             summary="append a validated finding to a store (quote the claim)",
             handler=_cmd_h4ndl3_add,
+            # YELLOW: a finding records a claim about a person, with
+            # provenance — same legal weight as the research itself.
+            tier=tiers.YELLOW,
+            tier_rationale="recording an identifier-research finding about a "
+            "person — lawful only for authorized casework",
         ),
         Command(
             name="validate",
@@ -702,6 +729,32 @@ M3TALEX_TOOL = Tool(
 # casework — case workspaces: cases, entities, and the associations
 # between them.
 # ---------------------------------------------------------------------------
+
+
+def _casework_status_tier(args: list[str]) -> str:
+    """``status`` is YELLOW only when the target status reaches third parties.
+
+    ``submitted`` and ``referred`` attest the case's accuracy outside the
+    workspace; internal movement (draft, pending, closed) is ordinary
+    documentation and stays GREEN. Malformed invocations (fewer than two
+    arguments) resolve GREEN so they fail with the usage error, not a
+    challenge.
+    """
+    if len(args) >= 2 and args[1] in ("submitted", "referred"):
+        return tiers.YELLOW
+    return tiers.GREEN
+
+
+def _casework_link_tier(args: list[str]) -> str:
+    """``link`` is YELLOW only when it associates a person (a subject).
+
+    Linking a vehicle or another case is ordinary documentation;
+    linking a subject asserts a person's involvement across cases,
+    which is lawful only for authorized casework.
+    """
+    if len(args) >= 2 and args[1] == "subject":
+        return tiers.YELLOW
+    return tiers.GREEN
 
 
 def _session_workspace(session: SessionContext) -> Path:
@@ -948,6 +1001,11 @@ CASEWORK_TOOL = Tool(
             summary="advance a case's status (draft -> pending -> submitted "
             "-> referred -> closed)",
             handler=_cmd_casework_status,
+            # YELLOW only for `submitted`/`referred` — see
+            # _casework_status_tier.
+            tier=_casework_status_tier,
+            tier_rationale="marking a case submitted or referred attests "
+            "its accuracy to third parties",
         ),
         Command(
             name="categorize",
@@ -967,6 +1025,10 @@ CASEWORK_TOOL = Tool(
             summary="associate an entity with a case (unknown subjects and "
             "vehicles are auto-registered)",
             handler=_cmd_casework_link,
+            # YELLOW only for `subject` — see _casework_link_tier.
+            tier=_casework_link_tier,
+            tier_rationale="associating a person (a subject) across cases — "
+            "lawful only for authorized casework",
         ),
         Command(
             name="links",

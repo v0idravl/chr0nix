@@ -147,6 +147,19 @@ class H4ndl3ToolTests(ConsoleToolTestCase):
     def setUp(self):
         super().setUp()
         dispatch(self.session, "use h4ndl3")
+        # `worksheet` and `add` are YELLOW-tier: they need a workspace
+        # (for the attestation log) and an actor, and each invocation
+        # below goes through the challenge → ack flow via self.yellow().
+        self.ws = self.workdir / "ws"
+        self.ws.mkdir()
+        dispatch(self.session, f"set workspace {self.ws}")
+        dispatch(self.session, "set actor A. Rivera")
+
+    def yellow(self, line: str) -> str:
+        """Run a YELLOW command through its challenge and ack."""
+        challenge = dispatch(self.session, line)
+        self.assertTrue(challenge.startswith("YELLOW"), challenge)
+        return dispatch(self.session, "ack authorized casework")
 
     def copy_store(self) -> Path:
         store = self.workdir / "findings.jsonl"
@@ -155,7 +168,7 @@ class H4ndl3ToolTests(ConsoleToolTestCase):
 
     def test_worksheet_writes_into_session_output(self):
         self.set_output()
-        output = dispatch(self.session, "worksheet j.doe_91")
+        output = self.yellow("worksheet j.doe_91")
         worksheet = self.out / "worksheet-username-j.doe_91.md"
         self.assertIn("wrote username worksheet", output)
         self.assertTrue(worksheet.is_file())
@@ -163,17 +176,21 @@ class H4ndl3ToolTests(ConsoleToolTestCase):
 
     def test_worksheet_with_explicit_type(self):
         self.set_output()
-        dispatch(self.session, "worksheet example.com domain")
+        self.yellow("worksheet example.com domain")
         self.assertTrue((self.out / "worksheet-domain-example.com.md").is_file())
 
     def test_worksheet_requires_set_output(self):
+        # The challenge comes first; the missing-output error surfaces
+        # when the ack re-runs the action.
+        dispatch(self.session, "worksheet j.doe_91")
         with self.assertRaisesRegex(SuiteError, "output is not set"):
-            dispatch(self.session, "worksheet j.doe_91")
+            dispatch(self.session, "ack authorized casework")
 
     def test_worksheet_rejects_unknown_type(self):
         self.set_output()
+        dispatch(self.session, "worksheet j.doe_91 bogus")
         with self.assertRaisesRegex(IdentifierError, "unknown identifier type"):
-            dispatch(self.session, "worksheet j.doe_91 bogus")
+            dispatch(self.session, "ack authorized casework")
 
     def test_validate_example_store(self):
         output = dispatch(self.session, f"validate {H4NDL3_STORE}")
@@ -185,8 +202,7 @@ class H4ndl3ToolTests(ConsoleToolTestCase):
 
     def test_add_appends_a_validated_finding(self):
         store = self.copy_store()
-        output = dispatch(
-            self.session,
+        output = self.yellow(
             f'add {store} "Marketplace listing matches the handle" '
             "https://example-market.example/listings/99 "
             "2026-09-01T10:00:00Z high https://web.archive.example/snap/99",
@@ -196,17 +212,19 @@ class H4ndl3ToolTests(ConsoleToolTestCase):
         self.assertIn("4 finding(s), all valid", output)
 
     def test_add_enforces_provenance_fields(self):
+        dispatch(self.session, f"add {self.workdir / 's.jsonl'} just-a-claim")
         with self.assertRaisesRegex(SuiteError, "usage: add"):
-            dispatch(self.session, f"add {self.workdir / 's.jsonl'} just-a-claim")
+            dispatch(self.session, "ack authorized casework")
 
     def test_add_applies_strict_validation(self):
         store = self.copy_store()
+        dispatch(
+            self.session,
+            f'add {store} "A claim" https://example.com/x '
+            "2026-09-01T10:00:00Z certain",
+        )
         with self.assertRaisesRegex(FindingError, "confidence"):
-            dispatch(
-                self.session,
-                f'add {store} "A claim" https://example.com/x '
-                "2026-09-01T10:00:00Z certain",
-            )
+            dispatch(self.session, "ack authorized casework")
 
     def test_report_prints_when_output_is_unset(self):
         output = dispatch(self.session, f"report {H4NDL3_STORE}")
@@ -220,8 +238,7 @@ class H4ndl3ToolTests(ConsoleToolTestCase):
 
     def test_run_validates_and_renders_the_case_store(self):
         self.set_output()
-        dispatch(
-            self.session,
+        self.yellow(
             f'add {self.out / "findings.jsonl"} "Profile resolves publicly" '
             "https://example-social.example/users/j.doe_91 "
             "2026-09-01T10:00:00Z medium",

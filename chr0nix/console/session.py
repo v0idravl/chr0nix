@@ -34,6 +34,7 @@ from pathlib import Path
 from cust0dia.paths import is_within
 
 from ..errors import SuiteError
+from ..tiers import PendingAction
 
 #: Session option names accepted by ``set`` / ``unset``, in the order
 #: ``show options`` reports them.
@@ -78,6 +79,10 @@ class SessionContext:
     #: option: it changes far too often for `set`, and the casework
     #: commands validate it themselves when they use it.
     active_case: str | None = None
+    #: The one YELLOW action awaiting `ack`, set by the challenge and
+    #: cleared by `ack` or by any other command. A plain attribute:
+    #: only the command layer's challenge/ack flow mutates it.
+    pending_action: PendingAction | None = None
 
     def set_option(self, name: str, value: str) -> str:
         """Validate and store one option; return a confirmation message.
