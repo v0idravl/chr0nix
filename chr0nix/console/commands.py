@@ -19,9 +19,12 @@ The grammar is deliberately tiny, in the operator-console tradition:
 Active tools add their own commands on top (cust0dia adds
 ``show exhibits``, ``show log``, and ``log``; timeline adds ``build``
 and ``schema``; h4ndl3 adds ``worksheet``, ``add``, ``validate``, and
-``report``; m3talex adds ``scan``). Parsing uses
-:func:`shlex.split`: quoted arguments work, and there is no shell —
-an evidence console has no business evaluating command lines.
+``report``; m3talex adds ``scan``; casework adds ``init``, ``new``,
+``cases``, ``open``, ``status``, ``categorize``, ``classify``,
+``link``, ``links``, ``event``, ``synopsis``, and ``show case``).
+Parsing uses :func:`shlex.split`: quoted arguments work, and there is
+no shell — an evidence console has no business evaluating command
+lines.
 """
 
 import shlex

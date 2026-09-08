@@ -16,6 +16,10 @@ same ones the module CLIs enforce at dispatch:
   (the cardinal "read-only on evidence" rule).
 - ``manifest`` must be an existing file when set explicitly.
 - ``log`` must never be the same file as ``manifest``.
+- ``workspace`` must be an existing directory that is either an
+  initialized casework workspace or empty enough to ``init``, and like
+  the other writable paths it must never resolve inside the evidence
+  tree.
 
 ``set output`` also *proposes* ``manifest`` and ``log`` paths inside the
 output directory when they are unset — the conventional layout the CLI
@@ -33,7 +37,7 @@ from ..errors import SuiteError
 
 #: Session option names accepted by ``set`` / ``unset``, in the order
 #: ``show options`` reports them.
-OPTION_NAMES = ("evidence", "output", "manifest", "log", "actor")
+OPTION_NAMES = ("evidence", "output", "manifest", "log", "actor", "workspace")
 
 
 def _check_free_text(value: str, what: str) -> str:
@@ -69,6 +73,11 @@ class SessionContext:
     custody_log: Path | None = None
     actor: str | None = None
     active_tool: str | None = None
+    workspace: Path | None = None
+    #: The casework tool's default case. A plain attribute, not an
+    #: option: it changes far too often for `set`, and the casework
+    #: commands validate it themselves when they use it.
+    active_case: str | None = None
 
     def set_option(self, name: str, value: str) -> str:
         """Validate and store one option; return a confirmation message.
@@ -83,6 +92,7 @@ class SessionContext:
             "manifest": self._set_manifest,
             "log": self._set_log,
             "actor": self._set_actor,
+            "workspace": self._set_workspace,
         }.get(name)
         if handler is None:
             raise SuiteError(
@@ -98,6 +108,7 @@ class SessionContext:
             "manifest": "manifest_path",
             "log": "custody_log",
             "actor": "actor",
+            "workspace": "workspace",
         }.get(name)
         if attribute is None:
             raise SuiteError(
@@ -116,6 +127,7 @@ class SessionContext:
                 "manifest": self.manifest_path,
                 "log": self.custody_log,
                 "actor": self.actor,
+                "workspace": self.workspace,
             }[name]
             pairs.append((name, str(value) if value is not None else "(unset)"))
         return pairs
@@ -129,7 +141,11 @@ class SessionContext:
         resolved = path.resolve()
         # Pointing at a new evidence tree must not silently legitimize
         # outputs that would now land inside it.
-        for label, existing in (("output", self.output_dir), ("log", self.custody_log)):
+        for label, existing in (
+            ("output", self.output_dir),
+            ("log", self.custody_log),
+            ("workspace", self.workspace),
+        ):
             if existing is not None and is_within(existing, resolved):
                 raise SuiteError(
                     f"refusing: the current {label} path {existing} would be inside "
@@ -185,3 +201,34 @@ class SessionContext:
     def _set_actor(self, value: str) -> str:
         self.actor = _check_free_text(value, "actor")
         return f"actor -> {self.actor}"
+
+    def _set_workspace(self, value: str) -> str:
+        """Point the session at a casework workspace directory.
+
+        The directory must exist and be either an initialized workspace
+        (it contains ``config/``) or empty — the state in which
+        casework's ``init`` can create the layout without adopting a
+        directory full of unrelated content. Like every other writable
+        path in the session, it must never resolve inside the evidence
+        tree: a workspace is case work product, and work product is
+        written.
+        """
+        path = Path(value).expanduser()
+        if not path.exists():
+            raise SuiteError(f"workspace directory does not exist: {value}")
+        if not path.is_dir():
+            raise SuiteError(f"workspace is not a directory: {value}")
+        resolved = path.resolve()
+        if self.evidence_dir is not None and is_within(resolved, self.evidence_dir):
+            raise SuiteError(
+                f"refusing to write into the evidence directory: {resolved} "
+                f"is inside {self.evidence_dir}"
+            )
+        if not (resolved / "config").is_dir() and any(resolved.iterdir()):
+            raise SuiteError(
+                f"refusing {resolved} as a workspace: it is not empty and has no "
+                "config/ directory — point at an initialized workspace, or at an "
+                "empty directory and run casework's `init`"
+            )
+        self.workspace = resolved
+        return f"workspace -> {resolved}"

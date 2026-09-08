@@ -1,10 +1,11 @@
 """Tool registry: the console's plugin surface.
 
 A *tool* is one investigative utility exposed through the console. All
-four suite modules are registered here: cust0dia (manifest / verify /
+five suite tools are registered here: cust0dia (manifest / verify /
 custody), timeline (multi-source UTC timelines), h4ndl3 (identifier
-research worksheets and corroborated findings), and m3talex (image
-metadata extraction).
+research worksheets and corroborated findings), m3talex (image
+metadata extraction), and casework (case workspaces: cases, entities,
+and associations).
 
 The registry is deliberately **static**: a tuple written out in source,
 not a discovery mechanism. There is no scanning of directories for
@@ -42,6 +43,10 @@ from m3talex.report import write_batch_outputs, write_json_report
 from m3talex.safety import ensure_output_dir, validate_input_dir, validate_input_file
 
 from .. import __version__ as suite_version
+from ..casework import cases as casework_cases
+from ..casework import entities as casework_entities
+from ..casework import synopsis as casework_synopsis
+from ..casework import workspace as casework_workspace
 from ..errors import SuiteError
 from ..timeline import cli as timeline_cli
 from ..timeline import manifest as timeline_manifest
@@ -693,10 +698,318 @@ M3TALEX_TOOL = Tool(
     ),
 )
 
+# ---------------------------------------------------------------------------
+# casework — case workspaces: cases, entities, and the associations
+# between them.
+# ---------------------------------------------------------------------------
+
+
+def _session_workspace(session: SessionContext) -> Path:
+    """The session workspace, confirmed initialized, or a guidance error."""
+    _require(session.workspace is None, "workspace is not set (use: set workspace <dir>)")
+    return casework_workspace.require_workspace(session.workspace)
+
+
+def _casework_actor(session: SessionContext) -> str:
+    """The session actor, required for anything that appends an event."""
+    _require(session.actor is None, "actor is not set (use: set actor <name>)")
+    return session.actor
+
+
+def _casework_case_id(session: SessionContext, args: list[str], usage: str) -> str:
+    """The case-id argument, falling back to the session's active case.
+
+    Only the commands that declare ``[case-id]`` optional go through
+    here; commands with a required ``<case-id>`` validate their own
+    arguments, so a stray word can never be silently reinterpreted as
+    "the active case".
+    """
+    if len(args) > 1:
+        raise SuiteError(f"usage: {usage}")
+    if args:
+        return args[0]
+    if session.active_case is None:
+        raise SuiteError(
+            "no case given and no active case "
+            "(use: open <case-id>, or pass a case-id)"
+        )
+    return session.active_case
+
+
+def _cmd_casework_init(session: SessionContext, args: list[str]) -> str:
+    if args:
+        raise SuiteError("usage: init")
+    _require(session.workspace is None, "workspace is not set (use: set workspace <dir>)")
+    written = casework_workspace.init_workspace(session.workspace)
+    lines = [f"initialized casework workspace at {session.workspace}"]
+    lines += [f"wrote {path}" for path in written]
+    return "\n".join(lines)
+
+
+def _cmd_casework_new(session: SessionContext, args: list[str]) -> str:
+    if len(args) < 2:
+        raise SuiteError("usage: new <case-id> <title...>")
+    workspace = _session_workspace(session)
+    case = casework_cases.create_case(
+        workspace, args[0], " ".join(args[1:]), _casework_actor(session)
+    )
+    session.active_case = case.id
+    return f"created case {case.id} (draft) — active case -> {case.id}"
+
+
+def _casework_cases_listing(session: SessionContext) -> str:
+    """The case table shared by the ``cases`` command and ``run``."""
+    workspace = _session_workspace(session)
+    all_cases = casework_cases.list_cases(workspace)
+    if not all_cases:
+        return "no cases yet (use: new <case-id> <title...>)"
+    links = casework_entities.read_links(workspace)
+    lines = [f"{'case':<20}{'status':<11}{'cats':>5}{'links':>6}  title"]
+    for case in all_cases:
+        count = sum(
+            1
+            for link in links
+            if link.case_id == case.id
+            or (link.entity_type == "case" and link.entity_id == case.id)
+        )
+        lines.append(
+            f"{case.id:<20}{case.status:<11}{len(case.categories):>5}"
+            f"{count:>6}  {case.title}"
+        )
+    return "\n".join(lines)
+
+
+def _cmd_casework_cases(session: SessionContext, args: list[str]) -> str:
+    if args:
+        raise SuiteError("usage: cases")
+    return _casework_cases_listing(session)
+
+
+def _cmd_casework_open(session: SessionContext, args: list[str]) -> str:
+    if len(args) != 1:
+        raise SuiteError("usage: open <case-id>")
+    workspace = _session_workspace(session)
+    case = casework_cases.load_case(workspace, args[0])
+    session.active_case = case.id
+    return f"active case -> {case.id} ({case.status}: {case.title})"
+
+
+def _cmd_casework_status(session: SessionContext, args: list[str]) -> str:
+    if len(args) != 2:
+        raise SuiteError("usage: status <case-id> <new-status>")
+    workspace = _session_workspace(session)
+    case = casework_cases.transition_status(
+        workspace, args[0], args[1], _casework_actor(session)
+    )
+    suffix = f" (closed {case.closed_utc})" if case.closed_utc else ""
+    return f"{case.id}: status -> {case.status}{suffix}"
+
+
+def _cmd_casework_categorize(session: SessionContext, args: list[str]) -> str:
+    if len(args) != 2:
+        raise SuiteError("usage: categorize <case-id> <category-id>")
+    workspace = _session_workspace(session)
+    case, changed = casework_cases.attach_category(workspace, args[0], args[1])
+    verb = "categorized" if changed else "already categorized"
+    return f"{case.id}: {verb} as {args[1]}"
+
+
+def _cmd_casework_classify(session: SessionContext, args: list[str]) -> str:
+    if len(args) != 2:
+        raise SuiteError("usage: classify <case-id> <taxonomy-path>")
+    workspace = _session_workspace(session)
+    case, changed = casework_cases.attach_taxonomy(workspace, args[0], args[1])
+    verb = "classified" if changed else "already classified"
+    return f"{case.id}: {verb} under {args[1]}"
+
+
+def _cmd_casework_link(session: SessionContext, args: list[str]) -> str:
+    if len(args) < 3:
+        raise SuiteError(
+            "usage: link <case-id> subject|vehicle|case <entity-id> [role...]"
+        )
+    workspace = _session_workspace(session)
+    case_id, entity_type, entity_id = args[:3]
+    role = " ".join(args[3:])
+    registered = casework_entities.append_link(
+        workspace, case_id, entity_type, entity_id, role
+    )
+    message = f"linked {case_id} -> {entity_type} {entity_id}"
+    if registered:
+        message += f" (auto-registered {entity_type} {entity_id})"
+    return message
+
+
+def _cmd_casework_links(session: SessionContext, args: list[str]) -> str:
+    workspace = _session_workspace(session)
+    case_id = _casework_case_id(session, args, "links [case-id]")
+    found = casework_entities.associations(workspace, case_id)
+    if not found:
+        return f"{case_id}: no associated cases"
+    lines = [f"associations for {case_id}:"]
+    lines += [
+        f"  {association.case_id:<20}{'; '.join(association.reasons)}"
+        for association in found
+    ]
+    return "\n".join(lines)
+
+
+def _cmd_casework_event(session: SessionContext, args: list[str]) -> str:
+    if len(args) < 3:
+        raise SuiteError("usage: event <case-id> <event-type> <detail...>")
+    workspace = _session_workspace(session)
+    casework_cases.append_event(
+        workspace, args[0], actor=_casework_actor(session),
+        event_type=args[1], detail=" ".join(args[2:]),
+    )
+    return f"event logged on {args[0]} ({args[1]})"
+
+
+def _cmd_casework_synopsis(session: SessionContext, args: list[str]) -> str:
+    workspace = _session_workspace(session)
+    case_id = _casework_case_id(session, args, "synopsis [case-id]")
+    path = casework_synopsis.regenerate_synopsis(workspace, case_id)
+    content = path.read_text(encoding="utf-8").rstrip("\n")
+    return f"wrote {path}\n{content}"
+
+
+def _cmd_casework_show(session: SessionContext, args: list[str]) -> str:
+    workspace = _session_workspace(session)
+    case_id = _casework_case_id(session, args, "show case [case-id]")
+    case = casework_cases.load_case(workspace, case_id)
+    synopsis_path = casework_workspace.case_dir(workspace, case.id) / "synopsis.txt"
+    synopsis = str(synopsis_path) if synopsis_path.is_file() else "(not generated yet)"
+    lines = [
+        f"id:             {case.id}",
+        f"title:          {case.title}",
+        f"status:         {case.status}",
+        f"categories:     {', '.join(case.categories) or '(none)'}",
+        f"taxonomy_paths: {', '.join(case.taxonomy_paths) or '(none)'}",
+        f"opened_utc:     {case.opened_utc}",
+        f"closed_utc:     {case.closed_utc or '(open)'}",
+        f"synopsis:       {synopsis}",
+    ]
+    return "\n".join(lines)
+
+
+def _run_casework(session: SessionContext) -> str:
+    """The case table plus a status-count summary of the whole workspace."""
+    listing = _casework_cases_listing(session)
+    workspace = _session_workspace(session)
+    all_cases = casework_cases.list_cases(workspace)
+    counts = {status: 0 for status in casework_cases.STATUS_ORDER}
+    for case in all_cases:
+        counts[case.status] += 1
+    breakdown = ", ".join(
+        f"{counts[status]} {status}"
+        for status in casework_cases.STATUS_ORDER
+        if counts[status]
+    )
+    summary = f"workspace: {len(all_cases)} case(s)"
+    if breakdown:
+        summary += f" — {breakdown}"
+    return f"{listing}\n{summary}"
+
+
+CASEWORK_TOOL = Tool(
+    name="casework",
+    summary="case workspaces: cases, entities, and associations",
+    run=_run_casework,
+    commands=(
+        Command(
+            name="init",
+            usage="init",
+            summary="create the workspace layout at the session workspace "
+            "(with starter config)",
+            handler=_cmd_casework_init,
+        ),
+        Command(
+            name="new",
+            usage="new <case-id> <title...>",
+            summary="create a case (status draft) and make it the active case",
+            handler=_cmd_casework_new,
+        ),
+        Command(
+            name="cases",
+            usage="cases",
+            summary="list all cases: id, status, category/link counts, title",
+            handler=_cmd_casework_cases,
+        ),
+        Command(
+            name="open",
+            usage="open <case-id>",
+            summary="make a case the active case (default for links, "
+            "synopsis, show case)",
+            handler=_cmd_casework_open,
+        ),
+        Command(
+            name="status",
+            usage="status <case-id> <new-status>",
+            summary="advance a case's status (draft -> pending -> submitted "
+            "-> referred -> closed)",
+            handler=_cmd_casework_status,
+        ),
+        Command(
+            name="categorize",
+            usage="categorize <case-id> <category-id>",
+            summary="attach a category defined in config/categories.csv",
+            handler=_cmd_casework_categorize,
+        ),
+        Command(
+            name="classify",
+            usage="classify <case-id> <taxonomy-path>",
+            summary="attach a taxonomy path defined in config/taxonomy.csv",
+            handler=_cmd_casework_classify,
+        ),
+        Command(
+            name="link",
+            usage="link <case-id> subject|vehicle|case <entity-id> [role...]",
+            summary="associate an entity with a case (unknown subjects and "
+            "vehicles are auto-registered)",
+            handler=_cmd_casework_link,
+        ),
+        Command(
+            name="links",
+            usage="links [case-id]",
+            summary="show cases associated with a case, with the reason "
+            "(shared entity / direct link)",
+            handler=_cmd_casework_links,
+        ),
+        Command(
+            name="event",
+            usage="event <case-id> <event-type> <detail...>",
+            summary="append an event to the case's append-only log "
+            "(actor comes from `set actor`)",
+            handler=_cmd_casework_event,
+        ),
+        Command(
+            name="synopsis",
+            usage="synopsis [case-id]",
+            summary="regenerate and print the case's synopsis.txt",
+            handler=_cmd_casework_synopsis,
+        ),
+        # Named "show case" rather than "show" so the core `show tools`
+        # / `show options` keep working while casework is active — the
+        # same longest-prefix pattern as cust0dia's "show exhibits".
+        Command(
+            name="show case",
+            usage="show case [case-id]",
+            summary="show a case's case.json fields and synopsis path",
+            handler=_cmd_casework_show,
+        ),
+    ),
+)
+
 #: The tools the console can run, in display order. This tuple is the
 #: entire plugin mechanism — see the module docstring for why it is a
 #: static list and not a discovery system.
-REGISTRY: tuple[Tool, ...] = (CUST0DIA_TOOL, TIMELINE_TOOL, H4NDL3_TOOL, M3TALEX_TOOL)
+REGISTRY: tuple[Tool, ...] = (
+    CUST0DIA_TOOL,
+    TIMELINE_TOOL,
+    H4NDL3_TOOL,
+    M3TALEX_TOOL,
+    CASEWORK_TOOL,
+)
 
 
 def lookup_tool(name: str) -> Tool:
