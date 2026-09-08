@@ -42,14 +42,14 @@ The repository ships a fictional case folder under `examples/`. From the
 repo root, hash it at "collection time":
 
 ```bash
-python -m cust0dia manifest examples/case-2026-014 --output-dir out/demo
+python -m cust0dia manifest examples/cust0dia/case-2026-014 --output-dir out/demo
 cat out/demo/manifest.csv
 ```
 
 Prove the folder is still byte-for-byte what was collected:
 
 ```bash
-python -m cust0dia verify out/demo/manifest.json examples/case-2026-014
+python -m cust0dia verify out/demo/manifest.json examples/cust0dia/case-2026-014
 ```
 
 Log a custody event, anchored to the exhibit's hash from the manifest:
@@ -61,21 +61,21 @@ python -m cust0dia custody out/demo/manifest.json out/demo/custody-log.csv \
     --notes "Collected from LP office, sealed in evidence bag 14."
 ```
 
-Or do the whole workflow interactively in the console:
+Or do the whole workflow interactively in the suite console:
 
 ```bash
-python -m cust0dia console
+python -m chr0nix console
 ```
 
 ```text
-cust0dia > use cust0dia
-cust0dia:cust0dia > set evidence examples/case-2026-014
-cust0dia:cust0dia > set output out/demo
-cust0dia:cust0dia > set actor A. Rivera
-cust0dia:cust0dia > run                          # builds manifest.csv + manifest.json
-cust0dia:cust0dia > show exhibits
-cust0dia:cust0dia > log exhibit-001_interview-notes.txt COLLECTED sealed in bag 14
-cust0dia:cust0dia > run                          # now verifies against the manifest
+chr0nix > use cust0dia
+chr0nix:cust0dia > set evidence examples/cust0dia/case-2026-014
+chr0nix:cust0dia > set output out/demo
+chr0nix:cust0dia > set actor A. Rivera
+chr0nix:cust0dia > run                          # builds manifest.csv + manifest.json
+chr0nix:cust0dia > show exhibits
+chr0nix:cust0dia > log exhibit-001_interview-notes.txt COLLECTED sealed in bag 14
+chr0nix:cust0dia > run                          # now verifies against the manifest
 ```
 
 `out/` is disposable demo output and is git-ignored; delete it whenever
@@ -85,11 +85,14 @@ you like.
 
 ## 🖥 The console
 
-`python -m cust0dia console` opens an interactive TUI (stdlib `curses`,
-Linux/macOS) modeled on operator consoles like metasploit: a shared
-session holds your evidence directory, output directory, and actor name
-so you set them once and then work. The status bar always shows what
-the next command will touch.
+cust0dia ships with no interface of its own beyond the CLI above — in
+the chr0nix suite it is one of four tools registered in the suite
+console (`python -m chr0nix console`, then `use cust0dia`). The console
+is an interactive TUI (stdlib `curses`, Linux/macOS) modeled on
+operator consoles like metasploit: a shared session holds your evidence
+directory, output directory, and actor name so you set them once and
+then work. The status bar always shows what the next command will
+touch.
 
 - `use <tool>` selects a tool from the suite registry (`show tools`);
   cust0dia is the first of them.
@@ -160,8 +163,8 @@ Requirements: **Python 3.11+** and nothing else. There is no install step, no
 virtualenv requirement, and no dependency to pin.
 
 ```bash
-git clone https://github.com/v0idravl/cust0dia.git
-cd cust0dia
+git clone https://github.com/v0idravl/chr0nix.git
+cd chr0nix
 python -m cust0dia --help
 ```
 

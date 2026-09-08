@@ -59,8 +59,8 @@ python -m h4ndl3 add --store out/findings.jsonl \
     --confidence medium \
     --corroborated-by "https://example-forum.example/members/j.doe_91" "https://web.archive.example/snap/example-social-j.doe_91"
 
-python -m h4ndl3 validate --store examples/findings.jsonl
-python -m h4ndl3 report --store examples/findings.jsonl --out out/report.md
+python -m h4ndl3 validate --store examples/h4ndl3/findings.jsonl
+python -m h4ndl3 report --store examples/h4ndl3/findings.jsonl --out out/report.md
 ```
 
 `out/report.md` shows the corroboration summary: the example store
@@ -123,8 +123,8 @@ tool, it is the only process the tool can run.
 Requirements: Python 3.11 or newer. Nothing else.
 
 ```bash
-git clone https://github.com/v0idravl/h4ndl3.git
-cd h4ndl3
+git clone https://github.com/v0idravl/chr0nix.git
+cd chr0nix
 ```
 
 There is no install step and no dependency resolution — run the tool in
@@ -279,6 +279,6 @@ describes.
 - All timestamps are UTC ISO-8601. Naive or non-UTC timestamps are
   rejected at the store boundary so records survive cross-timezone
   review.
-- `examples/findings.jsonl` is synthetic fixture data for demonstration;
+- `examples/h4ndl3/findings.jsonl` is synthetic fixture data for demonstration;
   it documents no real person or entity.
 - Run the test suite with `python -m unittest` from the repository root.
