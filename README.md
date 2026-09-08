@@ -217,5 +217,10 @@ them.
   alongside your reports.
 - `out/` and `examples/out/` are git-ignored so demo runs never dirty
   the tree.
+- Image annotation is a manual, external step: annotate a *copy* with
+  swappy, never the original, and manifest both. Recommended swappy
+  defaults for legible, report-grade markup (thicker lines, larger
+  monospace text, no auto-save) live in
+  [docs/image-annotation.md](docs/image-annotation.md).
 - chr0nix is for lawful, authorized investigative documentation work
   only.

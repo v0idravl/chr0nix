@@ -24,10 +24,8 @@ dotfiles would be working against its own purpose.
 
 import curses
 
-import cust0dia
-
 from .. import __version__
-from ..errors import SuiteError
+from ..errors import SuiteError, user_facing_errors
 from .commands import ConsoleExit, complete, dispatch
 from .session import SessionContext
 
@@ -260,11 +258,12 @@ def _main_loop(stdscr, session: SessionContext) -> None:
                 output = dispatch(session, line)
             except ConsoleExit:
                 return
-            except (SuiteError, cust0dia.Cust0diaError) as exc:
-                # SuiteError covers the shell's own validation; a module
-                # package's error type covers evidence-layer failures
-                # (unknown exhibit, malformed manifest). Both are
-                # user-fixable and render as one clean line.
+            except user_facing_errors() as exc:
+                # The shared tuple covers the shell's own validation
+                # (SuiteError) and every module package's error types —
+                # an unknown exhibit, a malformed manifest, an invalid
+                # finding, an unparseable image. All are user-fixable and
+                # render as one clean line; anything else tracebacks.
                 emit(f"chr0nix: error: {exc}", _STATUS_COLORS.get("error", 0))
             else:
                 if output:

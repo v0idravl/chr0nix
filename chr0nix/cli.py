@@ -25,7 +25,7 @@ import argparse
 import sys
 
 from . import __version__
-from .errors import SuiteError
+from .errors import SuiteError, user_facing_errors
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,22 +77,13 @@ def _cmd_console(args: argparse.Namespace) -> int:
 def _user_facing_errors() -> tuple[type[Exception], ...]:
     """Error types that render as a clean one-line message, exit 2.
 
-    Always includes the shell's own :class:`SuiteError` and ``OSError``.
-    Each module package's error type (today: ``cust0dia.Cust0diaError``)
-    is added when its package is importable, so evidence-layer failures
-    surfacing through the console — an unknown exhibit, a malformed
-    manifest — get the same clean treatment as shell errors. The import
-    is resolved here, at dispatch time, rather than at module load so
-    ``chr0nix --help`` works even in a partial checkout of the suite.
+    The shared :func:`chr0nix.errors.user_facing_errors` tuple — the
+    shell's own :class:`SuiteError` plus each module package's error
+    type — with ``OSError`` added: at the CLI boundary a filesystem
+    failure (an unreadable evidence file, an unwritable output path) is
+    likewise the user's to fix, not a bug to traceback.
     """
-    errors: list[type[Exception]] = [SuiteError, OSError]
-    try:
-        from cust0dia import Cust0diaError
-    except ImportError:
-        pass
-    else:
-        errors.append(Cust0diaError)
-    return tuple(errors)
+    return (OSError,) + user_facing_errors()
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -17,7 +17,9 @@ The grammar is deliberately tiny, in the operator-console tradition:
 - ``exit`` / ``quit``          — leave the console
 
 Active tools add their own commands on top (cust0dia adds
-``show exhibits``, ``show log``, and ``log``). Parsing uses
+``show exhibits``, ``show log``, and ``log``; timeline adds ``build``
+and ``schema``; h4ndl3 adds ``worksheet``, ``add``, ``validate``, and
+``report``; m3talex adds ``scan``). Parsing uses
 :func:`shlex.split`: quoted arguments work, and there is no shell —
 an evidence console has no business evaluating command lines.
 """
@@ -161,10 +163,11 @@ def dispatch(session: SessionContext, line: str) -> str:
     Raises :class:`SuiteError` for any expected, user-fixable failure
     in the shell itself (unknown command, bad arguments, unsafe
     session paths) and :class:`ConsoleExit` on ``exit``/``quit``.
-    Tool handlers may also raise the active module's own error type
-    (e.g. :class:`cust0dia.Cust0diaError` for an unknown exhibit);
-    the UI catches both. Anything else is a bug and is allowed to
-    propagate.
+    Tool handlers may also raise the active module's own error types
+    (e.g. :class:`cust0dia.Cust0diaError` for an unknown exhibit, or
+    :class:`m3talex.errors.M3talexError` for an unparseable image);
+    the UI catches exactly :func:`chr0nix.errors.user_facing_errors`.
+    Anything else is a bug and is allowed to propagate.
     """
     stripped = line.strip()
     if not stripped:
