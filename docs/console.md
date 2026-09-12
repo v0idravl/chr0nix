@@ -18,13 +18,29 @@ clean pointer to the CLIs, which remain fully functional — and since
 casework and guide have their own CLIs (`chr0nix case`, `chr0nix guide`),
 every console capability is reachable non-interactively.
 
-The screen is, top to bottom: a **status bar** (active tool, workspace,
-active case, evidence/output/manifest/log — what the next command will
-touch, before it runs), a **scrollback** (verify statuses color-coded when
-the terminal supports color), and an **input line** with a small line
-editor: arrows, home/end, Ctrl-U clear, up/down history (in memory only —
-never written to disk), tab completion, PgUp/PgDn paging, Ctrl-C/Ctrl-D to
-leave.
+The screen is, top to bottom: a **status bar** (active tool, the guided
+form currently owning the input line with its field progress, an armed
+YELLOW challenge awaiting `ack`, workspace, active case,
+evidence/output/manifest/log — what the next command will touch, before
+it runs), a **scrollback** (verify statuses color-coded when the terminal
+supports color), and an **input line** with a small line editor: arrows,
+home/end, Ctrl-U clear, up/down history (in memory only — never written
+to disk), tab completion, PgUp/PgDn paging, Ctrl-C/Ctrl-D to leave.
+
+Tab completion follows bash reflexes: one candidate completes outright,
+several extend the line to the common prefix, and a second tab lists the
+candidates. It knows the grammar, not just the first word — option names
+after `set`/`unset`, filesystem paths for the path-valued options
+(directories keep their `/` so tab descends), tool names after
+`use`/`info`, topics after `help`, a tool's commands after its name
+(`casework in<Tab>`), and the second word of two-word commands
+(`subject a<Tab>`). While a guided form owns the session, the prompt
+names the form and field position — ordinary commands are not running,
+and the prompt says so.
+
+Typos get a *did you mean*: an unknown command, help topic, `show`
+target, or option name suggests the closest matches instead of failing
+bare.
 
 ---
 
@@ -34,11 +50,12 @@ The grammar is deliberately tiny, in the operator-console tradition:
 
 | Command | Meaning |
 | --- | --- |
-| `help [command]` | usage for everything available now, or one command |
+| `help [topic]` | scoped help: a command, a tool, `core`, or `all` (bare: an overview, or the active tool's commands once one is loaded) |
+| `info [tool]` | the active (or named) tool's full module card |
 | `show tools` | the registered tools, tier-marked, with the active one |
-| `show options` | the session: evidence / output / manifest / log / actor / workspace |
+| `show options` | the session as a table: value, whether the active tool requires it, and a description per option — with required-but-unset options called out |
 | `show attestations` | the workspace attestation log, verbatim |
-| `use <tool>` | make a tool active (bare: list tools) |
+| `use <tool>` | make a tool active (bare: list tools); loading a tool prints its module card |
 | `set <option> <value>` | set a session option (bare `set` shows options; `set <option>` shows one value) |
 | `unset <option>` | clear an option |
 | `run` | the active tool's primary action |
@@ -59,6 +76,21 @@ Dispatch is deliberately forgiving, in the sliver tradition:
 
 Parsing uses `shlex.split`: quoted arguments work, and there is no shell —
 an evidence console has no business evaluating command lines.
+
+### Orientation: help, cards, options
+
+Help is scoped so it never dumps the whole registry at once. Bare `help`
+shows an overview (the core table plus the tool list) until a tool is
+loaded, then the active tool's commands; `help <tool>` peeks at a tool
+without switching, `help core` is just the core table, `help <command>`
+shows one command's usage with its tier and worked examples, and
+`help all` keeps the full everything-dump reachable for grep-ing.
+
+Loading a tool (`use casework`, or just `casework`) prints its **module
+card**: a one-line summary, what `run` does, the session options the tool
+draws on (required-but-unset ones called out with the `set` hint), and a
+teaser of its commands. `info` reprints the card in full — every command —
+for the active or a named tool.
 
 ### Session options
 

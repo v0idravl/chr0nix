@@ -8,10 +8,17 @@ makes the console testable in-process like the CLI.
 
 The grammar is deliberately tiny, in the operator-console tradition:
 
-- ``help [command]``           — usage for everything available now
+- ``help [topic]``               — scoped help: a command, a tool,
+  ``core``, or ``all``; bare ``help`` shows what matters in the current
+  context (an overview with no active tool, the active tool's commands
+  once one is loaded)
+- ``info [tool]``                — the active (or named) tool's full
+  module card: summary, what ``run`` does, the options it needs, every
+  command
 - ``show tools|options|attestations`` — registered tools / session
   state / the workspace attestation log
-- ``use <tool>``               — make a tool active (bare: list tools)
+- ``use <tool>``               — make a tool active (bare: list tools);
+  loading a tool prints its module card
 - ``set <option> <value>``     — evidence / output / manifest / log / actor
   (bare ``set`` shows options; ``set <option>`` shows one value)
 - ``unset <option>``           — clear an option
@@ -64,13 +71,16 @@ clears the pending action, so an ack can never confirm a stale
 challenge.
 """
 
+import difflib
+import glob
+import os
 import shlex
 
 from .. import tiers
 from ..errors import SuiteError
 from . import tools
 from .forms import EditorHandoff, GuidedForm
-from .session import OPTION_NAMES, SessionContext
+from .session import OPTION_DESCRIPTIONS, OPTION_NAMES, SessionContext
 
 
 class ConsoleExit(Exception):
@@ -92,7 +102,9 @@ class ConsoleClear(Exception):
 
 #: ``(name, usage, summary)`` for the core commands, in help order.
 _CORE_HELP: tuple[tuple[str, str, str], ...] = (
-    ("help", "help [command]", "show this help, or one command's usage"),
+    ("help", "help [topic]", "scoped help: a command, a tool, `core`, or "
+     "`all` (bare: what matters in the current context)"),
+    ("info", "info [tool]", "the active (or named) tool's full module card"),
     ("show", "show tools|options|attestations",
      "list registered tools / show session state / print the attestation log"),
     ("use", "use <tool>", "make a tool active (bare: list tools; "
@@ -113,15 +125,58 @@ def _tier_marker(spec: tiers.TierSpec) -> str:
     return " [yellow]" if tiers.is_yellow_capable(spec) else ""
 
 
-def _cmd_help(session: SessionContext, args: list[str]) -> str:
-    if args:
-        wanted = " ".join(args)
-        for name, usage, summary in _available_commands():
-            if name == wanted:
-                return f"{usage:<40}{summary}"
-        raise SuiteError(f"no such command {wanted!r} (try: help)")
+def _core_help_text() -> str:
+    """Just the core command table (``help core``)."""
     lines = ["core commands:"]
     lines += [f"  {usage:<38}{summary}" for _, usage, summary in _core_commands()]
+    return "\n".join(lines)
+
+
+def _help_overview() -> str:
+    """Bare ``help`` with no active tool: orientation, not a dump.
+
+    The core table plus the tool list (name + one-line summary), then
+    the three help shapes an operator actually needs. Every tool's full
+    command list stays reachable through ``help <tool>`` / ``help all``
+    without burying this view in 40+ lines.
+    """
+    lines = [_core_help_text(), "tools:"]
+    name_width = max(len(tool.name) for tool in tools.REGISTRY)
+    lines += [
+        f"  {tool.name:<{name_width}}  {tool.summary}{_tool_tier_marker(tool)}"
+        for tool in tools.REGISTRY
+    ]
+    lines += [
+        "orient:",
+        "  use <tool>      load a tool — prints its module card "
+        "(what it needs, top commands)",
+        "  help <tool>     a tool's commands without switching to it",
+        "  help <command>  one command's usage, tier, and examples",
+        "  help all        every command in every tool (the long dump)",
+    ]
+    return "\n".join(lines)
+
+
+def _tool_help(tool: "tools.Tool", *, active: bool) -> str:
+    """One tool's full command list (bare ``help`` when loaded)."""
+    marker = " (active)" if active else ""
+    lines = [f"{tool.name} commands:{marker}"]
+    lines += [
+        f"  {command.usage:<38}{command.summary}{_tier_marker(command.tier)}"
+        for command in tool.commands
+    ]
+    verbs = ", ".join(name for name, _, _ in _core_commands())
+    lines.append(f"core verbs: {verbs}")
+    lines.append("`help core` for the core table · `help all` dumps every "
+                 "tool's commands · `info` for the full module card")
+    if not active:
+        lines.append(f"({tool.name} is not loaded — `use {tool.name}` to make it active)")
+    return "\n".join(lines)
+
+
+def _help_all(session: SessionContext) -> str:
+    """``help all``: the everything-dump, kept reachable for grep-ing."""
+    lines = [_core_help_text()]
     for tool in tools.REGISTRY:
         marker = " (active)" if tool.name == session.active_tool else ""
         lines.append(f"{tool.name} commands:{marker}")
@@ -134,6 +189,48 @@ def _cmd_help(session: SessionContext, args: list[str]) -> str:
         "command switches the active tool"
     )
     return "\n".join(lines)
+
+
+def _command_help(wanted: str) -> str:
+    """``help <command>``: usage, summary, tier, and any examples."""
+    for name, usage, summary in _core_commands():
+        if name == wanted:
+            return f"{usage:<40}{summary}"
+    for tool in tools.REGISTRY:
+        for command in tool.commands:
+            if command.name != wanted:
+                continue
+            lines = [
+                f"{command.usage:<40}{command.summary}{_tier_marker(command.tier)}"
+            ]
+            if command.tier_rationale and tiers.is_yellow_capable(command.tier):
+                lines.append(f"why yellow: {command.tier_rationale}")
+            if command.details:
+                lines.append("examples:")
+                lines.append(command.details)
+            return "\n".join(lines)
+    raise SuiteError(
+        f"no such command or tool {wanted!r}"
+        f"{_suggest(wanted, _help_topics())} (try: help)"
+    )
+
+
+def _cmd_help(session: SessionContext, args: list[str]) -> str:
+    """Scoped help: the current context, never the whole registry at once."""
+    if not args:
+        tool = _active_tool(session)
+        if tool is not None:
+            return _tool_help(tool, active=True)
+        return _help_overview()
+    wanted = " ".join(args)
+    if wanted == "core":
+        return _core_help_text()
+    if wanted == "all":
+        return _help_all(session)
+    tool = _tool_named(wanted)
+    if tool is not None:
+        return _tool_help(tool, active=tool.name == session.active_tool)
+    return _command_help(wanted)
 
 
 def _cmd_show(session: SessionContext, args: list[str]) -> str:
@@ -156,9 +253,38 @@ def _cmd_show(session: SessionContext, args: list[str]) -> str:
         lines.append(f"active: {active}")
         return "\n".join(lines)
     if what == "options":
-        width = max(len(name) for name, _ in session.describe_options())
-        lines = [f"{name:<{width}}  {value}" for name, value in session.describe_options()]
-        lines.append(f"{'tool':<{width}}  {session.active_tool or '(none)'}")
+        described = session.describe_options()
+        values = dict(described)
+        tool = _active_tool(session)
+        name_width = max(len(name) for name, _ in described)
+        value_width = max(
+            [len(value) for _, value in described] + [len("Current Setting")]
+        )
+        lines = [
+            f"{'Name':<{name_width}}  {'Current Setting':<{value_width}}  "
+            f"{'Required':<8}  Description",
+            f"{'----':<{name_width}}  {'---------------':<{value_width}}  "
+            f"{'--------':<8}  -----------",
+        ]
+        for name, value in described:
+            if tool is None:
+                required = ""
+            else:
+                required = "yes" if name in tool.requires else "no"
+            lines.append(
+                f"{name:<{name_width}}  {value:<{value_width}}  {required:<8}  "
+                f"{OPTION_DESCRIPTIONS[name]}"
+            )
+        lines.append(f"active tool: {session.active_tool or '(none)'}")
+        if session.active_case is not None:
+            lines.append(f"active case: {session.active_case}")
+        if tool is None:
+            lines.append("Required applies once a tool is loaded (`use <tool>`)")
+        else:
+            missing = [name for name in tool.requires if values[name] == "(unset)"]
+            if missing:
+                hints = ", ".join(f"{name} (`set {name} <value>`)" for name in missing)
+                lines.append(f"missing required for {tool.name}: {hints}")
         return "\n".join(lines)
     if what == "attestations":
         # Like cust0dia's `show log`: the record printed verbatim, not a view.
@@ -169,7 +295,8 @@ def _cmd_show(session: SessionContext, args: list[str]) -> str:
             return f"no attestations yet at {path}"
         return path.read_text(encoding="utf-8").rstrip("\n")
     raise SuiteError(
-        f"unknown `show` target {what!r} "
+        f"unknown `show` target {what!r}"
+        f"{_suggest(what, _show_targets())} "
         "(try: show tools, show options, show attestations)"
     )
 
@@ -183,6 +310,51 @@ def _tool_tier_marker(tool: "tools.Tool") -> str:
     return ""
 
 
+def _tool_card(session: SessionContext, tool: "tools.Tool", *, full: bool) -> str:
+    """The module card: what a tool is, what it needs, what it offers.
+
+    Compact form (``use``) teases the first few commands; full form
+    (``info``) lists them all. Either way the operator sees the session
+    options this tool draws on, with the required-but-unset ones called
+    out — the metasploit "show options on load" reflex.
+    """
+    lines = [f"{tool.name} — {tool.summary}"]
+    run_summary = tool.run_summary or "the tool's primary action"
+    run_marker = " [yellow]" if tiers.is_yellow_capable(tool.run_tier) else ""
+    lines.append(f"run: {run_summary}{run_marker}")
+    values = dict(session.describe_options())
+    names = list(tool.requires) + [n for n in tool.optional if n not in tool.requires]
+    if not names:
+        lines.append("options: none needed")
+    else:
+        lines.append("options:")
+        width = max(len(name) for name in names)
+        for name in names:
+            value = values[name]
+            if name in tool.requires:
+                status = (
+                    value if value != "(unset)"
+                    else f"(unset — required; `set {name} <value>`)"
+                )
+            else:
+                status = f"{value} (optional)" if value != "(unset)" else "(unset, optional)"
+            lines.append(f"  {name:<{width}} = {status}")
+    if full:
+        lines.append("commands:")
+        lines += [
+            f"  {command.usage:<38}{command.summary}{_tier_marker(command.tier)}"
+            for command in tool.commands
+        ]
+        lines.append("`help <command>` for usage and examples")
+    else:
+        teaser = ", ".join(command.name for command in tool.commands[:5])
+        if len(tool.commands) > 5:
+            teaser += ", …"
+        lines.append(f"commands ({len(tool.commands)}): {teaser}")
+        lines.append("`help` lists them all · `info` shows the full card")
+    return "\n".join(lines)
+
+
 def _cmd_use(session: SessionContext, args: list[str]) -> str:
     if not args:
         return _cmd_show(session, ["tools"])
@@ -190,25 +362,43 @@ def _cmd_use(session: SessionContext, args: list[str]) -> str:
         raise SuiteError("usage: use <tool>")
     tool = tools.lookup_tool(args[0])
     session.active_tool = tool.name
-    return f"active tool -> {tool.name}"
+    return f"active tool -> {tool.name}\n{_tool_card(session, tool, full=False)}"
+
+
+def _cmd_info(session: SessionContext, args: list[str]) -> str:
+    """The full module card for the active tool, or a named one."""
+    if len(args) > 1:
+        raise SuiteError("usage: info [tool]")
+    if args:
+        return _tool_card(session, tools.lookup_tool(args[0]), full=True)
+    tool = _active_tool(session)
+    if tool is None:
+        raise SuiteError("no active tool — `use <tool>` first, or `info <tool>`")
+    return _tool_card(session, tool, full=True)
 
 
 def _cmd_set(session: SessionContext, args: list[str]) -> str:
     if not args:
         return _cmd_show(session, ["options"])
-    if len(args) == 1:
-        for name, value in session.describe_options():
-            if name == args[0]:
-                return f"{name} = {value}"
+    if args[0] not in OPTION_NAMES:
         raise SuiteError(
-            f"unknown option {args[0]!r}; expected one of: {', '.join(OPTION_NAMES)}"
+            f"unknown option {args[0]!r}{_suggest(args[0], OPTION_NAMES)}; "
+            f"expected one of: {', '.join(OPTION_NAMES)}"
         )
+    if len(args) == 1:
+        value = dict(session.describe_options())[args[0]]
+        return f"{args[0]} = {value}\n({OPTION_DESCRIPTIONS[args[0]]})"
     return session.set_option(args[0], " ".join(args[1:]))
 
 
 def _cmd_unset(session: SessionContext, args: list[str]) -> str:
     if len(args) != 1:
         raise SuiteError("usage: unset <option>")
+    if args[0] not in OPTION_NAMES:
+        raise SuiteError(
+            f"unknown option {args[0]!r}{_suggest(args[0], OPTION_NAMES)}; "
+            f"expected one of: {', '.join(OPTION_NAMES)}"
+        )
     return session.unset_option(args[0])
 
 
@@ -297,6 +487,7 @@ def _core_commands() -> list[tuple[str, str, str]]:
 #: Core command handlers keyed by command word.
 _CORE_HANDLERS = {
     "help": _cmd_help,
+    "info": _cmd_info,
     "show": _cmd_show,
     "use": _cmd_use,
     "set": _cmd_set,
@@ -328,6 +519,56 @@ def _available_commands() -> list[tuple[str, str, str]]:
     for tool in tools.REGISTRY:
         available += [(c.name, c.usage, c.summary) for c in tool.commands]
     return available
+
+
+def _suggest(wanted: str, candidates) -> str:
+    """A "did you mean" tail for an error message, or "" if nothing is close."""
+    close = difflib.get_close_matches(wanted, sorted(candidates), n=3, cutoff=0.6)
+    if not close:
+        return ""
+    return f" — did you mean: {', '.join(close)}?"
+
+
+def _help_topics() -> set[str]:
+    """Everything ``help`` accepts: keywords, tool names, command names."""
+    topics = {"core", "all"}
+    topics.update(tool.name for tool in tools.REGISTRY)
+    topics.update(name for name, _, _ in _available_commands())
+    return topics
+
+
+def _show_targets() -> set[str]:
+    """Everything ``show`` accepts: core targets plus tool ``show`` commands."""
+    targets = {"tools", "options", "attestations"}
+    for name, _, _ in _available_commands():
+        if name.startswith("show "):
+            targets.add(name.split(" ", 1)[1])
+    return targets
+
+
+#: Session options whose values are filesystem paths — tab-completed.
+_PATH_OPTIONS = ("evidence", "output", "manifest", "log", "workspace")
+
+
+def _complete_paths(prefix: str) -> list[str]:
+    """Filesystem completion for one path fragment.
+
+    Directories get a trailing ``/`` so repeated tabbing descends into
+    them; a typed ``~`` is preserved in the candidates (expanded only
+    for matching). Dotfiles complete only when the fragment's basename
+    starts with a dot — the usual glob rule, and the least surprising.
+    """
+    expanded = os.path.expanduser(prefix)
+    home = os.path.expanduser("~")
+    candidates = []
+    for match in glob.glob(expanded + "*"):
+        display = match
+        if prefix.startswith("~") and match.startswith(home + os.sep):
+            display = "~" + match[len(home):]
+        if os.path.isdir(match):
+            display += os.sep
+        candidates.append(display)
+    return sorted(candidates)
 
 
 def dispatch(session: SessionContext, line: str) -> str:
@@ -401,7 +642,8 @@ def _dispatch(session: SessionContext, line: str, *, attested: bool) -> str:
         session.active_tool = named.name
         tool = named
         if not rest:
-            return f"active tool -> {named.name}"
+            # Selecting a tool is the orientation moment: show the card.
+            return f"active tool -> {named.name}\n{_tool_card(session, named, full=False)}"
         head, rest = rest[0], rest[1:]
         tokens = [head, *rest]
 
@@ -450,7 +692,9 @@ def _dispatch(session: SessionContext, line: str, *, attested: bool) -> str:
                 session.active_tool = candidate.name
                 output = _run_tool_command(session, candidate, command, rest, stripped, attested)
                 return f"active tool -> {candidate.name}\n{output}"
-    raise SuiteError(f"unknown command {head!r} (try: help)")
+    names = [name for name, _, _ in _available_commands()]
+    names += [tool.name for tool in tools.REGISTRY]
+    raise SuiteError(f"unknown command {head!r}{_suggest(head, names)} (try: help)")
 
 
 def _with_notice(notice: str, output: str) -> str:
@@ -500,12 +744,25 @@ def _run_tool_command(
 def complete(session: SessionContext, line: str) -> list[str]:
     """Completion candidates for ``line`` — the UI's tab key.
 
-    Completes command names and tool names at the start of a line,
-    option names after ``set``/``unset``, and tool names after ``use``.
-    Exhibit paths are
-    deliberately not completed: completing them would mean reading the
-    manifest on every keystroke, and a mistyped exhibit fails loudly at
-    ``log`` time anyway.
+    Candidates are always full-line forms (``set evidence``), so the UI
+    can complete by replacing the buffer. What completes where:
+
+    - the first word: every command name and tool name (a bare tool
+      name selects the tool);
+    - ``set``/``unset``: option names, then filesystem paths for the
+      path-valued options (directories get a trailing ``/`` so tab
+      descends into them);
+    - ``use``/``info``: tool names;
+    - ``help``: topics — ``core``, ``all``, tool names, and command
+      names, including two-word commands (``help subject a<Tab>`` ->
+      ``help subject add``);
+    - a tool name: that tool's commands (``casework in<Tab>``);
+    - the first word of a two-word command: the second word
+      (``subject a<Tab>``), including the core ``show`` targets.
+
+    Exhibit paths are deliberately not completed: completing them would
+    mean reading the manifest on every keystroke, and a mistyped
+    exhibit fails loudly at ``log`` time anyway.
     """
     tokens = line.split()
     ends_with_space = line.endswith(" ")
@@ -517,8 +774,41 @@ def complete(session: SessionContext, line: str) -> list[str]:
         return sorted(name for name in names if name.startswith(prefix))
     head = tokens[0]
     prefix = "" if ends_with_space else tokens[-1]
-    if head in ("set", "unset") and (len(tokens) == 1 or (len(tokens) == 2 and not ends_with_space)):
-        return sorted(f"{head} {name}" for name in OPTION_NAMES if name.startswith(prefix))
-    if head == "use" and (len(tokens) == 1 or (len(tokens) == 2 and not ends_with_space)):
-        return sorted(f"use {tool.name}" for tool in tools.REGISTRY if tool.name.startswith(prefix))
+    on_second_word = len(tokens) == 1 or (len(tokens) == 2 and not ends_with_space)
+    if head in ("set", "unset"):
+        if on_second_word:
+            return sorted(f"{head} {name}" for name in OPTION_NAMES if name.startswith(prefix))
+        if head == "set" and tokens[1] in _PATH_OPTIONS and (
+            len(tokens) == 2 or (len(tokens) == 3 and not ends_with_space)
+        ):
+            return [f"set {tokens[1]} {path}" for path in _complete_paths(prefix)]
+        return []
+    if head in ("use", "info") and on_second_word:
+        return sorted(f"{head} {tool.name}" for tool in tools.REGISTRY if tool.name.startswith(prefix))
+    if head == "help" and (len(tokens) > 1 or ends_with_space):
+        # The topic may be several words ("show exhibits"); complete the
+        # whole topic string, not just the last token.
+        stem = " ".join(tokens[1:]) if ends_with_space else " ".join(tokens[1:-1])
+        full = f"{stem} {prefix}".strip()
+        return sorted(f"help {topic}" for topic in _help_topics() if topic.startswith(full))
+    if on_second_word:
+        # A tool name prefixes any of its commands (`casework in<Tab>`).
+        named = _tool_named(head)
+        if named is not None:
+            return sorted(
+                f"{named.name} {command.name}"
+                for command in named.commands
+                if command.name.startswith(prefix)
+            )
+        # The second word of a two-word command (`subject a<Tab>`),
+        # plus the core `show` targets (they are arguments, not commands).
+        names = {
+            name
+            for name, _, _ in _available_commands()
+            if " " in name and name.split(" ", 1)[0] == head
+        }
+        if head == "show":
+            names.update(f"show {target}" for target in _show_targets())
+        wanted = f"{head} {prefix}"
+        return sorted(name for name in names if name.startswith(wanted))
     return []

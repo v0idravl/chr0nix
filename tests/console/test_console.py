@@ -222,15 +222,18 @@ class ConsoleTests(unittest.TestCase):
     def test_set_with_one_argument_shows_the_value(self):
         dispatch(self.session, "set actor A. Rivera")
         output = dispatch(self.session, "set actor")
-        self.assertEqual(output, "actor = A. Rivera")
+        # The value, plus the option's one-line description beneath it.
+        self.assertTrue(output.startswith("actor = A. Rivera\n("), output)
+        self.assertIn("recorded in custody", output)
 
     def test_bare_use_lists_tools(self):
         output = dispatch(self.session, "use")
         self.assertIn("cust0dia", output)
         self.assertIn("casework", output)
 
-    def test_help_lists_every_tool_commands(self):
-        output = dispatch(self.session, "help")
+    def test_help_all_lists_every_tool_commands(self):
+        # Bare `help` is scoped now; `help all` keeps the full dump.
+        output = dispatch(self.session, "help all")
         self.assertIn("casework commands:", output)
         self.assertIn("log <exhibit> <ACTION>", output)
 

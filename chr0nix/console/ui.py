@@ -7,15 +7,19 @@ and this module's only jobs are layout, color, and keystroke handling.
 
 Layout (top to bottom):
 
-1. **Status bar** — the session at a glance: active tool, evidence,
-   manifest, log. An investigator should always be able to see what
+1. **Status bar** — the session at a glance: active tool, active form
+   (while a guided form owns the input line), active case, workspace,
+   evidence, manifest, log. An investigator should always be able to see what
    the next command will touch *before* touching it.
 2. **Scrollback** — command output, newest at the bottom. Verify
    statuses are color-coded when the terminal supports color; without
    color the output is byte-identical to the CLI's.
 3. **Input line** — a small line editor: printable characters,
    backspace, arrows, home/end, Ctrl-U clear, up/down history, tab
-   completion, PgUp/PgDn scrollback paging, Ctrl-C/Ctrl-D to leave.
+   completion (an ambiguous tab extends to the common prefix, a second
+   tab lists the candidates), PgUp/PgDn scrollback paging,
+   Ctrl-C/Ctrl-D to leave. While a guided form owns the session, the
+   prompt names the form and the field position.
 
 History is kept in memory only. No history file is ever written: case
 paths and actor names are case data, and a console that leaks them to
@@ -23,6 +27,7 @@ dotfiles would be working against its own purpose.
 """
 
 import curses
+import os
 
 from .. import __version__
 from ..core import editor as core_editor
@@ -97,12 +102,23 @@ def _status_text(session: SessionContext) -> str:
     paths matter while doing evidence work, the workspace and active
     case matter while doing casework — show whichever is set, compactly
     (basenames for paths), so the bar stays readable at 80 columns.
+    While a guided form owns the input line, the bar says so (which form,
+    which field of how many), since ordinary commands are not running.
+    An armed YELLOW challenge is shown as ``pending:`` so the action an
+    ``ack`` would run is never a surprise.
     """
 
     def base(path):
         return path.name if path is not None else None
 
     parts = [f"tool: {session.active_tool or '-'}"]
+    form = session.form
+    if form is not None:
+        parts.append(f"form: {form.title} [{form.index + 1}/{len(form.fields)}]")
+    if session.pending_action is not None:
+        # A YELLOW challenge is armed: the next `ack` will run it. Keep
+        # it visible so the attestation is never a surprise.
+        parts.append(f"pending: {session.pending_action.action}")
     if session.active_case is not None:
         parts.append(f"case: {session.active_case}")
     if session.workspace is not None:
@@ -114,6 +130,19 @@ def _status_text(session: SessionContext) -> str:
     if session.custody_log is not None:
         parts.append(f"log: {base(session.custody_log)}")
     return " chr0nix | " + " | ".join(parts) + " "
+
+
+def _prompt_text(session: SessionContext) -> str:
+    """The input-line prompt for the session's current state.
+
+    A guided form owns the line while it is active, so the prompt says
+    which form and where in it — typing `help` there would be form
+    input, not a command, and the prompt must not pretend otherwise.
+    """
+    form = session.form
+    if form is not None:
+        return f"{form.title} [{form.index + 1}/{len(form.fields)}] > "
+    return f"chr0nix:{session.active_tool or ''} > "
 
 
 def _wrap(text: str, width: int) -> list[str]:
@@ -194,14 +223,32 @@ class _Editor:
         self._history_index = None
         return line
 
-    def tab_complete(self, session: SessionContext) -> None:
+    def tab_complete(self, session: SessionContext) -> list[str]:
+        """Tab: complete the buffer, or report the ambiguous candidates.
+
+        One candidate completes outright (no trailing space after a
+        directory path — the ``/`` means completion can descend
+        further). Several candidates extend the buffer to their common
+        prefix, bash-style, and are returned untouched so the UI can
+        list them once the buffer already sits at that prefix (i.e. a
+        second tab shows the list).
+        """
         candidates = complete(session, self.text())
         if len(candidates) == 1:
             replacement = candidates[0]
             # Completion candidates are full-line forms ("set evidence"),
             # so completing replaces the whole buffer.
-            self.buffer = list(replacement + " ")
+            suffix = "" if replacement.endswith(os.sep) else " "
+            self.buffer = list(replacement + suffix)
             self.cursor = len(self.buffer)
+            return []
+        if candidates:
+            common = os.path.commonprefix(candidates)
+            if len(common) > len(self.text()):
+                self.buffer = list(common)
+                self.cursor = len(self.buffer)
+                return []
+        return candidates
 
 
 def _editor_round_trip(stdscr, handoff: EditorHandoff) -> tuple[str | None, str | None]:
@@ -283,7 +330,7 @@ def _main_loop(stdscr, session: SessionContext) -> None:
         for row, (text, attr) in enumerate(visible[-body_rows:]):
             stdscr.addnstr(row + 1, 0, text, width, attr)
 
-        prompt = f"chr0nix:{session.active_tool or ''} > "
+        prompt = _prompt_text(session)
         input_row = height - 1
         stdscr.move(input_row, 0)
         stdscr.clrtoeol()
@@ -336,7 +383,17 @@ def _main_loop(stdscr, session: SessionContext) -> None:
                     for out_line in output.split("\n"):
                         emit(out_line, _line_attr(out_line))
         elif isinstance(key, str) and key == "\t":
-            editor.tab_complete(session)
+            candidates = editor.tab_complete(session)
+            if candidates:
+                # Ambiguous completion: list what tab could mean, minus
+                # the stem already typed (the part through the last
+                # space), so "help c" lists "casework  core".
+                current = editor.text()
+                stem = current[: current.rfind(" ") + 1]
+                tails = [
+                    c[len(stem):] if c.startswith(stem) else c for c in candidates
+                ]
+                emit("  ".join(tails))
         elif isinstance(key, str) and key in ("\x03", "\x04"):  # Ctrl-C / Ctrl-D
             return
         elif isinstance(key, str) and key == "\x15":  # Ctrl-U

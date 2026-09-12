@@ -65,10 +65,14 @@ class RegistryTests(ConsoleToolTestCase):
         self.assertEqual(names, ["cust0dia", "timeline", "h4ndl3", "m3talex"])
 
     def test_use_each_tool(self):
+        # `use` prints the module card; the first line keeps the classic
+        # "active tool -> x" announcement.
         for name in ("cust0dia", "timeline", "h4ndl3", "m3talex"):
             with self.subTest(tool=name):
                 output = dispatch(self.session, f"use {name}")
-                self.assertEqual(output, f"active tool -> {name}")
+                self.assertTrue(output.startswith(f"active tool -> {name}\n"), output)
+                self.assertIn("run:", output)
+                self.assertIn("options:", output)
 
     def test_help_lists_active_tool_commands(self):
         dispatch(self.session, "use h4ndl3")

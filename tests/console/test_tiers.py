@@ -251,7 +251,11 @@ class VisibilityTests(TierTestCase):
             self.assertNotIn("[yellow]", line)
 
     def test_help_lists_the_ack_command(self):
+        # casework is active here: bare `help` names the core verbs, and
+        # `help core` shows the full core table with usage strings.
         output = dispatch(self.session, "help")
+        self.assertIn("ack", output)
+        output = dispatch(self.session, "help core")
         self.assertIn("ack <reason...>", output)
         output = dispatch(self.session, "help ack")
         self.assertIn("ack <reason...>", output)

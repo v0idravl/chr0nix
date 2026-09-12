@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Console operator-UX layer** (`chr0nix/console/commands.py`,
+  `tools.py`, `session.py`, `ui.py`). Help is now scoped: bare `help`
+  shows an overview (core table + tool list) until a tool is loaded,
+  then the active tool's commands; `help <tool>` peeks without
+  switching, `help core` is just the core table, `help <command>` shows
+  usage with tier, rationale, and worked examples (new `Command.details`
+  field), and `help all` keeps the full dump. Loading a tool (`use`, or
+  a bare tool name) prints a **module card** — summary, what `run` does
+  (new `Tool.run_summary`), the session options the tool draws on (new
+  `Tool.requires`/`optional`, with required-but-unset called out), and a
+  command teaser; the new `info [tool]` command reprints the card in
+  full. `show options` is now a Name/Current-Setting/Required/Description
+  table (descriptions from new `OPTION_DESCRIPTIONS`) that marks what
+  the active tool requires and names what is missing.
+- **Bash-reflex tab completion**: an ambiguous tab extends the line to
+  the common prefix and a second tab lists the candidates in the
+  scrollback. Completion knows the grammar — `show` targets, the second
+  word of two-word commands (`subject a<Tab>`), a tool's commands after
+  its name (`casework in<Tab>`), `help` topics, and filesystem paths for
+  the path-valued `set` options (directories keep their `/` so tab
+  descends).
+- **Did-you-mean errors**: unknown commands, help topics, `show`
+  targets, and option names suggest the closest difflib matches.
+
+### Changed
+
+- The console input prompt names the active guided form and field
+  position while a form owns the line (`new subject profile [3/12] >`),
+  and the status bar shows an armed YELLOW challenge
+  (`pending: <action>`) so the action an `ack` would run is never a
+  surprise. `set <option>` shows the option's description beneath its
+  value.
+
 ## [1.0.0] - 2026-09-12
 
 ### Added

@@ -40,6 +40,16 @@ from ..tiers import PendingAction
 #: ``show options`` reports them.
 OPTION_NAMES = ("evidence", "output", "manifest", "log", "actor", "workspace")
 
+#: One-line description per option, for the ``show options`` table.
+OPTION_DESCRIPTIONS: dict[str, str] = {
+    "evidence": "the case's evidence tree (read-only; must exist)",
+    "output": "where tools write; proposes manifest/log paths when set",
+    "manifest": "the cust0dia manifest (proposed inside output)",
+    "log": "the custody log (proposed inside output; never the manifest)",
+    "actor": "the operator's name, recorded in custody/event/attestation logs",
+    "workspace": "the casework workspace (casework's `init` creates the layout)",
+}
+
 
 def _check_free_text(value: str, what: str) -> str:
     """Reject control characters in a free-text session value.

@@ -82,6 +82,10 @@ class Command:
     arguments resolved at dispatch time. ``tier_rationale`` is the
     "why it's yellow" sentence shown in the challenge; it is required
     whenever the tier is or can be YELLOW, and unused for GREEN.
+
+    ``details`` is an optional block of example usage shown by
+    ``help <command>`` beneath the usage line — two to four lines for
+    the commands an operator types most.
     """
 
     name: str
@@ -90,6 +94,7 @@ class Command:
     handler: Handler
     tier: tiers.TierSpec = tiers.GREEN
     tier_rationale: str = ""
+    details: str = ""
 
 
 @dataclass(frozen=True)
@@ -98,7 +103,13 @@ class Tool:
 
     ``run_tier`` tiers the tool's primary action (what the core ``run``
     command invokes) exactly as ``Command.tier`` tiers a command; it is
-    a constant because ``run`` takes no arguments.
+    a constant because ``run`` takes no arguments. ``run_summary`` is
+    the one-line "what ``run`` does" shown by the module card and
+    ``info``.
+
+    ``requires`` / ``optional`` name the session options the tool's
+    commands draw on, so ``use``, ``info``, and ``show options`` can
+    orient the operator: required options are called out while unset.
     """
 
     name: str
@@ -107,6 +118,9 @@ class Tool:
     commands: tuple[Command, ...]
     run_tier: str = tiers.GREEN
     run_rationale: str = ""
+    run_summary: str = ""
+    requires: tuple[str, ...] = ()
+    optional: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +264,11 @@ CUST0DIA_TOOL = Tool(
     name="cust0dia",
     summary="SHA-256 exhibit manifests, verification, chain of custody",
     run=_run_cust0dia,
+    run_summary="two phases: collect hashes the evidence tree into "
+    "manifest.csv/json; once a manifest exists, run verifies the tree "
+    "against it (re-collect with `unset manifest`)",
+    requires=("evidence", "output"),
+    optional=("manifest", "log", "actor"),
     commands=(
         Command(
             name="show exhibits",
@@ -268,6 +287,9 @@ CUST0DIA_TOOL = Tool(
             usage="log <exhibit> <ACTION> [notes...]",
             summary="append a custody event (actor comes from `set actor`)",
             handler=_cmd_log,
+            details="  log exhibit-a_interview-notes.txt COLLECTED sealed in bag 14\n"
+            "  the exhibit must be in the active manifest (`show exhibits` lists\n"
+            "  them); the log entry is hash-anchored to the manifest's sha256",
         ),
     ),
 )
@@ -426,6 +448,9 @@ TIMELINE_TOOL = Tool(
     name="timeline",
     summary="merge source CSV exports into one UTC exhibit timeline",
     run=_run_timeline,
+    run_summary="build the timeline from every *.csv under the session "
+    "evidence tree into the session output",
+    requires=("evidence", "output"),
     commands=(
         Command(
             name="build",
@@ -433,6 +458,10 @@ TIMELINE_TOOL = Tool(
             summary="build the timeline from a directory of source CSVs "
             "(output-dir defaults to `set output`)",
             handler=_cmd_timeline_build,
+            details="  build /cases/exports  (every *.csv under the directory is a source)\n"
+            "  build sources/ out/ ap_incidents=America/Los_Angeles\n"
+            "  naive timestamps need a NAME=IANA_TZ declaration; `schema` prints\n"
+            "  the input CSV contract",
         ),
         Command(
             name="schema",
@@ -579,6 +608,10 @@ H4NDL3_TOOL = Tool(
     name="h4ndl3",
     summary="identifier research worksheets and corroborated findings",
     run=_run_h4ndl3,
+    run_summary="validate the case store (<output>/findings.jsonl) and "
+    "refresh its rendered report",
+    requires=("output",),
+    optional=("workspace", "actor"),
     commands=(
         Command(
             name="worksheet",
@@ -592,6 +625,10 @@ H4NDL3_TOOL = Tool(
             tier=tiers.YELLOW,
             tier_rationale="researching an identifier tied to a person — "
             "lawful only for authorized casework",
+            details="  worksheet j.doe_91            (type defaults to username)\n"
+            "  worksheet example.com domain\n"
+            "  YELLOW-tier: answers a challenge, then `ack <reason...>` runs it;\n"
+            "  the ack needs a workspace (attest.csv) and `set actor`",
         ),
         Command(
             name="add",
@@ -723,6 +760,9 @@ M3TALEX_TOOL = Tool(
     name="m3talex",
     summary="extract and flag image metadata (JPEG EXIF, PNG chunks)",
     run=_run_m3talex,
+    run_summary="batch-scan the session evidence tree into the session "
+    "output (report, per-image JSON, manifests)",
+    requires=("evidence", "output"),
     commands=(
         Command(
             name="scan",
@@ -1388,6 +1428,9 @@ CASEWORK_TOOL = Tool(
     name="casework",
     summary="case workspaces: cases, entities, and associations",
     run=_run_casework,
+    run_summary="the workspace case table plus a status-count summary",
+    requires=("workspace",),
+    optional=("actor",),
     commands=(
         Command(
             name="init",
@@ -1401,6 +1444,9 @@ CASEWORK_TOOL = Tool(
             usage="new <case-id> <title...>",
             summary="create a case (status draft) and make it the active case",
             handler=_cmd_casework_new,
+            details="  new case-2026-014 \"Fitting-room concealment\"\n"
+            "  needs an initialized workspace (`init`) and `set actor`;\n"
+            "  the new case becomes the active case for `link`, `file`, `show case`",
         ),
         Command(
             name="cases",
@@ -1463,6 +1509,10 @@ CASEWORK_TOOL = Tool(
             summary="guided profile form: walk every subject field, then "
             "register (Enter skips, `done` saves, `cancel` aborts)",
             handler=lambda s, a: _profile_add(s, "subject", a),
+            details="  subject add             walk every profile field, one prompt each\n"
+            "  subject add subj-001    the same form with the id pre-filled\n"
+            "  Enter keeps [current] / skips; `done` saves; `cancel` aborts;\n"
+            "  `:edit` on the notes field composes in $EDITOR",
         ),
         Command(
             name="subject edit",
@@ -1496,6 +1546,9 @@ CASEWORK_TOOL = Tool(
             summary="guided transportation-profile form: plate, VIN, make, "
             "model, ... then register",
             handler=lambda s, a: _profile_add(s, "vehicle", a),
+            details="  vehicle add             walk plate, VIN, make/model/year, owner, ...\n"
+            "  vehicle add veh-001     the same form with the id pre-filled\n"
+            "  Enter keeps [current] / skips; `done` saves; `cancel` aborts",
         ),
         Command(
             name="vehicle edit",
@@ -1557,6 +1610,10 @@ CASEWORK_TOOL = Tool(
             summary="file inbox items into a case's exhibits: moved, "
             "manifested, and custody-logged as COLLECTED (no names = all)",
             handler=_cmd_casework_file,
+            details="  file                       file every inbox item into the active case\n"
+            "  file case-2026-014 shot.png   one named item, explicit case\n"
+            "  each item is moved under cases/<id>/exhibits, hashed into the\n"
+            "  exhibits manifest, and custody-logged COLLECTED (needs `set actor`)",
         ),
         Command(
             name="statement",
@@ -1589,6 +1646,10 @@ CASEWORK_TOOL = Tool(
             "(CASE-REPORT.md + records + self-manifest; default out: "
             "<workspace>/exports)",
             handler=_cmd_casework_export,
+            details="  export                        active case -> <workspace>/exports\n"
+            "  export case-2026-014 /tmp/bundles\n"
+            "  the bundle self-seals with its own manifest; verify it anywhere\n"
+            "  with: chr0nix verify <bundle>/manifest.json <bundle>",
         ),
     ),
 )
@@ -1673,6 +1734,8 @@ GUIDE_TOOL = Tool(
     name="guide",
     summary="offline research-method knowledge base (browser handoffs)",
     run=_run_guide,
+    run_summary="print the method catalogue with usage hints",
+    optional=("workspace", "actor"),
     commands=(
         Command(
             name="methods",
@@ -1700,6 +1763,10 @@ GUIDE_TOOL = Tool(
             tier=_guide_method_tier,
             tier_rationale="recording person-focused research findings about "
             "an identifier — lawful only for authorized casework",
+            details="  capture username-search username=j.doe_91 platform=example-social\n"
+            "  field names are validated against the method's capture vocabulary\n"
+            "  (`hint <method-id>` lists them); records an osint-finding event on\n"
+            "  the active case — needs `set workspace`, `open <case-id>`, `set actor`",
         ),
     ),
 )
