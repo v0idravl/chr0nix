@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from chr0nix.core.safety import is_within
+
 from .errors import OutputRefusalError
 
 
@@ -49,7 +51,7 @@ def ensure_output_dir(raw_path: str, evidence_root: Path) -> Path:
     """
     output = Path(raw_path).expanduser().resolve()
     root = evidence_root.resolve()
-    if output == root or root in output.parents:
+    if is_within(output, root):
         raise OutputRefusalError(
             f"refusing to write reports inside the evidence directory: {output} "
             f"is within {root}"

@@ -6,7 +6,7 @@ import zlib
 
 from m3talex.errors import FormatError
 from m3talex.png import parse_png
-from m3talex.samplegen import build_png, png_chunk
+from tests.m3talex.samplegen import build_png, png_chunk
 
 
 class PngParseTests(unittest.TestCase):

@@ -1,33 +1,21 @@
 """UTC timestamp helpers.
 
-One small module with one job: every timestamp cust0dia emits goes
-through here, so the format cannot drift between commands. The format
-is ISO-8601 UTC at second precision with a ``Z`` suffix, e.g.
-``2026-08-31T14:03:22Z``.
+Re-export shim: the implementation now lives in
+:mod:`chr0nix.core.timeutil`, shared by every tool in the suite. This
+module keeps the original import paths (``cust0dia.timeutil.utc_now``,
+``cust0dia.timeutil.format_utc``) working.
 
-Second precision is deliberate: sub-second component times are noise
-for custody purposes (no court cares which millisecond a hash
-completed), and coarser timestamps keep manifests diff-friendly.
+The format is ISO-8601 UTC at second precision with a ``Z`` suffix,
+e.g. ``2026-08-31T14:03:22Z`` — coarser timestamps keep manifests
+diff-friendly, and no court cares which millisecond a hash completed.
 """
 
-from datetime import datetime, timezone
+from chr0nix.core import timeutil as _core_timeutil
 
+__all__ = ["utc_now", "format_utc"]
 
-def _to_iso_z(moment: datetime) -> str:
-    """Render an aware datetime as ``YYYY-MM-DDTHH:MM:SSZ``.
+#: Current time as an ISO-8601 UTC string (``YYYY-MM-DDTHH:MM:SSZ``).
+utc_now = _core_timeutil.utc_now
 
-    ``isoformat`` emits ``+00:00`` for UTC; the ``Z`` suffix is the more
-    conventional rendering in evidentiary and forensic tooling, so we
-    normalize to it here.
-    """
-    return moment.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def utc_now() -> str:
-    """Current time as an ISO-8601 UTC string."""
-    return _to_iso_z(datetime.now(timezone.utc))
-
-
-def format_utc(epoch_seconds: float) -> str:
-    """Render a POSIX timestamp (e.g. ``stat().st_mtime``) as ISO-8601 UTC."""
-    return _to_iso_z(datetime.fromtimestamp(epoch_seconds, tz=timezone.utc))
+#: Render a POSIX timestamp (e.g. ``stat().st_mtime``) as ISO-8601 UTC.
+format_utc = _core_timeutil.format_epoch

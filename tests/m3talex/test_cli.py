@@ -16,7 +16,7 @@ from pathlib import Path
 
 from m3talex.cli import main
 from m3talex.report import BATCH_REPORT_NAME, MANIFEST_CSV_NAME, MANIFEST_JSON_NAME
-from m3talex.samplegen import _ASCII as ASCII, build_jpeg, build_png
+from tests.m3talex.samplegen import _ASCII as ASCII, build_jpeg, build_png
 
 # tests/m3talex/test_cli.py -> chr0nix repo root (tests moved one level deeper
 # in the monorepo layout; the subprocess smoke tests cd here so that

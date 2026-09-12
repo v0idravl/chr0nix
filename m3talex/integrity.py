@@ -1,49 +1,54 @@
 """Integrity primitives: SHA-256 hashing, UTC timestamps, shared manifests.
 
-This module owns everything that ties a report back to a specific byte
+Re-export shim over :mod:`chr0nix.core`, which now holds the single
+implementation of everything that ties a report back to a specific byte
 sequence and moment in time:
 
-* :func:`sha256_file` streams files in chunks so multi-hundred-megabyte
-  CCTV exports do not get slurped into memory.
-* Timestamp helpers enforce the suite-wide rule that every recorded time is
-  UTC, ISO-8601, second precision, with a trailing ``Z``.
-* The manifest writers implement the *cust0dia* interchange format
-  shared by all four tools in the suite: CSV with header
-  ``relative_path,size_bytes,sha256,mtime_utc,hashed_at_utc`` and JSON as an
-  object with ``tool``, ``generated_at_utc``, ``root``, and ``entries``.
-  Rows are sorted by ``relative_path`` so manifests diff cleanly across runs.
+* :func:`chr0nix.core.hashing.sha256_file` streams files in chunks so
+  multi-hundred-megabyte CCTV exports do not get slurped into memory.
+* :mod:`chr0nix.core.timeutil` enforces the suite-wide rule that every
+  recorded time is UTC, ISO-8601, second precision, with a trailing
+  ``Z``.
+* The manifest writers implement the shared interchange format, defined
+  once in :mod:`chr0nix.core.manifest`: CSV with header
+  ``relative_path,size_bytes,sha256,mtime_utc,hashed_at_utc`` (LF line
+  endings) and JSON as an object with ``tool``, ``generated_at_utc``,
+  ``root``, and ``entries``, stamped ``"m3talex <version>"``. Rows are
+  sorted by ``relative_path`` so manifests diff cleanly across runs.
+
+This module keeps the original m3talex API (dict-shaped entries) working
+on top of the shared core.
 """
 
 from __future__ import annotations
 
-import csv
-import hashlib
-import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
-from . import TOOL_NAME
+from chr0nix.core import manifest as _core_manifest
+from chr0nix.core.hashing import sha256_file
+from chr0nix.core import timeutil as _core_timeutil
+
+from . import TOOL_NAME, __version__
 
 #: Manifest column order, fixed by the suite-wide interchange format.
-MANIFEST_FIELDS = ("relative_path", "size_bytes", "sha256", "mtime_utc", "hashed_at_utc")
+MANIFEST_FIELDS = _core_manifest.MANIFEST_FIELDS
 
-#: Read files in 1 MiB chunks: large enough to be fast, small enough that
-#: memory use stays flat regardless of exhibit size.
-_CHUNK_SIZE = 1024 * 1024
-
-
-def sha256_file(path: Path) -> str:
-    """Return the hex SHA-256 digest of *path*, read incrementally."""
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(_CHUNK_SIZE), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+__all__ = [
+    "MANIFEST_FIELDS",
+    "sha256_file",
+    "utc_now_iso",
+    "iso_utc",
+    "mtime_iso",
+    "manifest_entry",
+    "write_manifest_csv",
+    "write_manifest_json",
+]
 
 
 def utc_now_iso() -> str:
     """Current UTC time as ``YYYY-MM-DDTHH:MM:SSZ``."""
-    return iso_utc(datetime.now(timezone.utc))
+    return _core_timeutil.utc_now()
 
 
 def iso_utc(moment: datetime) -> str:
@@ -53,12 +58,12 @@ def iso_utc(moment: datetime) -> str:
     matches the resolution of EXIF timestamps, and avoids implying a
     precision the underlying filesystem or camera never had.
     """
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return _core_timeutil.format_utc(moment, timespec="seconds")
 
 
 def mtime_iso(path: Path) -> str:
     """Filesystem modification time of *path* as a UTC ISO-8601 string."""
-    return iso_utc(datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
+    return _core_timeutil.format_epoch(path.stat().st_mtime)
 
 
 def manifest_entry(path: Path, root: Path, hashed_at: str) -> dict:
@@ -67,14 +72,18 @@ def manifest_entry(path: Path, root: Path, hashed_at: str) -> dict:
     ``hashed_at`` is passed in (rather than re-stamped here) so every entry
     in one batch shares a single, honest "when this batch ran" timestamp.
     """
-    relative = path.relative_to(root).as_posix()
-    return {
-        "relative_path": relative,
-        "size_bytes": path.stat().st_size,
-        "sha256": sha256_file(path),
-        "mtime_utc": mtime_iso(path),
-        "hashed_at_utc": hashed_at,
-    }
+    return _core_manifest.entry_for(path, root, hashed_at=hashed_at).as_dict()
+
+
+def _as_core_entry(entry: dict) -> _core_manifest.ManifestEntry:
+    """Convert a dict-shaped entry (this module's public form) to core's."""
+    return _core_manifest.ManifestEntry(
+        relative_path=str(entry["relative_path"]),
+        size_bytes=int(entry["size_bytes"]),
+        sha256=str(entry["sha256"]),
+        mtime_utc=str(entry["mtime_utc"]),
+        hashed_at_utc=str(entry["hashed_at_utc"]),
+    )
 
 
 def write_manifest_csv(entries: list[dict], destination: Path) -> Path:
@@ -83,24 +92,19 @@ def write_manifest_csv(entries: list[dict], destination: Path) -> Path:
     Rows are sorted by ``relative_path`` regardless of input order so the
     output is deterministic and diffs cleanly between runs.
     """
-    rows = sorted(entries, key=lambda entry: entry["relative_path"])
-    with open(destination, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(MANIFEST_FIELDS))
-        writer.writeheader()
-        writer.writerows(rows)
+    rows = sorted((_as_core_entry(entry) for entry in entries), key=lambda e: e.relative_path)
+    _core_manifest.write_csv(rows, destination)
     return destination
 
 
 def write_manifest_json(entries: list[dict], destination: Path, root: Path) -> Path:
     """Write *entries* as a JSON manifest in the shared suite format."""
-    rows = sorted(entries, key=lambda entry: entry["relative_path"])
-    document = {
-        "tool": TOOL_NAME,
-        "generated_at_utc": utc_now_iso(),
-        "root": str(root),
-        "entries": rows,
-    }
-    destination.write_text(
-        json.dumps(document, indent=2, sort_keys=False) + "\n", encoding="utf-8"
+    rows = sorted((_as_core_entry(entry) for entry in entries), key=lambda e: e.relative_path)
+    _core_manifest.write_json(
+        rows,
+        root,
+        destination,
+        tool=f"{TOOL_NAME} {__version__}",
+        generated_at=utc_now_iso(),
     )
     return destination

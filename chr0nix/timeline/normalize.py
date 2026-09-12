@@ -235,9 +235,22 @@ def load_source(spec: SourceSpec) -> tuple[list[Event], list[str]]:
             warnings.append(
                 f"{spec.name}: ignoring non-schema column(s): {', '.join(extras)}"
             )
-        for row_number, row in enumerate(reader, start=2):
-            fields = schema.clean_row(row, spec.name, row_number)
-            events.append(normalize_fields(fields, spec, row_number, tz))
+        # Real exports carry large free-text fields; allow up to 16 MiB
+        # per field (the stdlib default is 128 KiB), restoring the
+        # process-wide limit afterwards. Beyond that, or on any other
+        # parser failure, csv.Error is translated to a loud, source-named
+        # Chr0nixError — a malformed export must fail the run cleanly,
+        # never as an uncaught traceback.
+        previous_limit = csv.field_size_limit()
+        csv.field_size_limit(max(previous_limit, 16 * 1024 * 1024))
+        try:
+            for row_number, row in enumerate(reader, start=2):
+                fields = schema.clean_row(row, spec.name, row_number)
+                events.append(normalize_fields(fields, spec, row_number, tz))
+        except csv.Error as exc:
+            raise Chr0nixError(f"{spec.name}: CSV parse failure: {exc}") from exc
+        finally:
+            csv.field_size_limit(previous_limit)
 
     if not events:
         warnings.append(f"{spec.name}: no data rows found")

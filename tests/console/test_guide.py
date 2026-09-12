@@ -17,7 +17,8 @@ from chr0nix.console.commands import dispatch
 from chr0nix.console.session import SessionContext
 from chr0nix.errors import SuiteError
 
-#: The catalogue's ten method ids, for listing assertions.
+#: A representative subset of the catalogue's method ids, for listing
+#: assertions.
 METHOD_IDS = (
     "username-search", "email-research", "phone-research",
     "satellite-imagery", "maps-geolocation", "domain-infrastructure",
@@ -77,7 +78,7 @@ class MethodsListingTests(GuideTestCase):
 
     def test_run_prints_overview_and_usage(self):
         output = dispatch(self.session, "run")
-        self.assertIn("13 method(s)", output)
+        self.assertIn("16 method(s)", output)
         self.assertIn("hint <method-id> [query...]", output)
         self.assertIn("capture <method-id>", output)
         for method_id in METHOD_IDS:
@@ -146,6 +147,23 @@ class HintTests(GuideTestCase):
         dispatch(self.session, "hint username-search")
         output = dispatch(self.session, "ack authorized casework")
         self.assertIn("two independent sources", output)
+
+    def test_new_methods_list_and_hint(self):
+        output = dispatch(self.session, "methods")
+        self.assertIn("transport:", output)
+        for method_id in ("breach-corpus", "transport-tracking", "vehicle-records"):
+            self.assertIn(method_id, output)
+        output = dispatch(self.session, "hint transport-tracking")
+        self.assertIn("Toolkit references", output)
+        self.assertIn("bellingcat.gitbook.io/toolkit", output)
+        self.assertIn("Capture fields: mode, identifier", output)
+
+    def test_vehicle_records_hint_challenges(self):
+        self.set_workspace_and_actor()
+        output = dispatch(self.session, "hint vehicle-records")
+        self.assertTrue(output.startswith("YELLOW"), output)
+        output = dispatch(self.session, "ack authorized records check")
+        self.assertIn("Vehicle and plate records", output)
 
 
 class CaptureTests(GuideTestCase):

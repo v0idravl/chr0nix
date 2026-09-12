@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chr0nix"
+dynamic = ["version"]
+description = "A stdlib-only, offline, read-only-on-evidence suite of investigative-documentation tools."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "v0idravl" }]
+keywords = ["digital-forensics", "chain-of-custody", "timeline", "osint", "metadata"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# The interactive console uses curses, which is absent from the standard
+# library on Windows; chr0nix/cli.py defers the import so the rest of the
+# CLI works regardless.
+windows = ["windows-curses>=2.3"]
+
+[project.urls]
+Homepage = "https://github.com/v0idravl/chr0nix"
+Repository = "https://github.com/v0idravl/chr0nix"
+
+[project.scripts]
+chr0nix = "chr0nix.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "chr0nix.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["chr0nix*", "cust0dia*", "h4ndl3*", "m3talex*"]
+exclude = ["tests*", "docs*", "examples*"]

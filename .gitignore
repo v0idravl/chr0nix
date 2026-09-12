@@ -1,6 +1,9 @@
 # Python bytecode and caches
 __pycache__/
 *.pyc
+dist/
+build/
+*.egg-info/
 
 # Tool output directories — demo and ad-hoc runs never dirty the tree
 examples/out/

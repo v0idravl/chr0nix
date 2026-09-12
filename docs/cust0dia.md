@@ -214,6 +214,15 @@ An `EXTRA` file (present on disk, absent from the manifest) also fails
 verification: an unexpected object in an evidence container is an integrity
 event, not a footnote.
 
+One narrow exemption: a manifest that lives *inside* the tree it describes
+— the self-sealing bundle written by `chr0nix case export`, which carries
+its own `manifest.csv`/`manifest.json` at the bundle root — cannot list
+itself, so the manifest under verification (and its CSV/JSON sibling) is
+exempt from the `EXTRA` sweep. This only affects a configuration that could
+never previously pass; trees whose manifest lives outside (the normal
+discipline) verify exactly as before, and any other unmanifested file still
+fails.
+
 ### `custody` — append a chain-of-custody event
 
 ```bash

@@ -143,7 +143,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     evidence_root = _require_directory(args.evidence_dir, "evidence directory")
 
     _, entries = manifest.read_manifest(manifest_path)
-    results = verify.verify_tree(evidence_root, entries)
+    # A manifest inside the tree it describes (a self-sealing bundle)
+    # cannot list itself; exempt exactly it and its sibling serialization.
+    exclusions = verify.manifest_exclusions(manifest_path, evidence_root)
+    results = verify.verify_tree(evidence_root, entries, exclude=exclusions)
 
     for result in results:
         line = f"{result.status:<8}{result.relative_path}"

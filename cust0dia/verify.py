@@ -18,9 +18,11 @@ code 1): for evidence, "mostly intact" is not a passing grade.
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 from . import hashing
 from .manifest import ManifestEntry, iter_evidence_files
+from .paths import is_within
 
 STATUS_OK = "OK"
 STATUS_CHANGED = "CHANGED"
@@ -44,13 +46,20 @@ class VerifyResult:
     detail: str = ""
 
 
-def verify_tree(root: Path, entries: list[ManifestEntry]) -> list[VerifyResult]:
+def verify_tree(
+    root: Path, entries: list[ManifestEntry], *, exclude: Iterable[str] = ()
+) -> list[VerifyResult]:
     """Re-hash ``root`` against ``entries`` and return sorted results.
 
     ``root`` must be a resolved directory. Results are sorted by
     relative path so verification reports diff cleanly, just like the
-    manifests they check.
+    manifests they check. ``exclude`` names manifest-relative paths
+    exempt from the EXTRA sweep — see :func:`manifest_exclusions` for
+    the one convention that uses it (a manifest sealing the tree it
+    lives in). Hashed entries are never exempted: an excluded path that
+    appears in the manifest is still re-hashed and judged.
     """
+    excluded = set(exclude)
     results: list[VerifyResult] = []
     for entry in entries:
         # Manifest relative paths were validated at read time (no
@@ -77,11 +86,41 @@ def verify_tree(root: Path, entries: list[ManifestEntry]) -> list[VerifyResult]:
     manifested = {entry.relative_path for entry in entries}
     for path in iter_evidence_files(root):
         relative = path.relative_to(root).as_posix()
-        if relative not in manifested:
+        if relative not in manifested and relative not in excluded:
             results.append(VerifyResult(STATUS_EXTRA, relative))
 
     results.sort(key=lambda result: result.relative_path)
     return results
+
+
+def manifest_exclusions(manifest_path: Path, root: Path) -> tuple[str, ...]:
+    """Paths exempt from the EXTRA sweep for a self-describing tree.
+
+    A manifest that lives inside the tree it describes — the
+    self-sealing bundle pattern written by ``chr0nix case export`` —
+    cannot list itself: its own bytes change as it is written, so it
+    would always fail the EXTRA sweep. When the manifest under
+    verification sits inside ``root``, it is exempt, and so is its
+    sibling serialization when it carries the conventional
+    ``manifest.csv`` / ``manifest.json`` pair name. Trees whose manifest
+    lives outside (cust0dia's normal output-separate-from-evidence
+    discipline) get no exemptions and verify exactly as before.
+    """
+    resolved_manifest = manifest_path.resolve()
+    resolved_root = root.resolve()
+    if not is_within(resolved_manifest, resolved_root):
+        return ()
+    excluded = [resolved_manifest.relative_to(resolved_root).as_posix()]
+    if resolved_manifest.name in ("manifest.csv", "manifest.json"):
+        sibling_name = (
+            "manifest.json"
+            if resolved_manifest.name == "manifest.csv"
+            else "manifest.csv"
+        )
+        sibling = resolved_manifest.with_name(sibling_name)
+        if sibling.is_file():
+            excluded.append(sibling.relative_to(resolved_root).as_posix())
+    return tuple(excluded)
 
 
 def summarize(results: list[VerifyResult]) -> dict[str, int]:

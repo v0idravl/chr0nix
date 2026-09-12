@@ -18,13 +18,19 @@ Marking a statement signed is a legally significant claim, so the
 console tiers ``statement-sign`` YELLOW: it only executes through the
 attested ack flow, and the ack lands in the workspace's ``attest.csv``
 alongside the row appended here.
+
+A statement's long-form *body* does not fit the one-record-one-line CSV
+rule, so it lives beside the log as
+``cases/<case-id>/statements/<statement-id>.txt``, written once at
+record time (usually composed in the terminal editor via the console's
+``:edit`` handoff or the CLI's default when no ``--body`` is given).
 """
 
 import csv
 from dataclasses import dataclass
 from pathlib import Path
 
-from cust0dia import timeutil
+from chr0nix.core import timeutil
 
 from . import CaseworkError
 from .cases import append_event, load_case
@@ -53,6 +59,17 @@ class Statement:
 
 def _log_path(workspace: Path, case_id: str) -> Path:
     return case_dir(workspace, case_id) / "statements.csv"
+
+
+def body_path(workspace: Path, case_id: str, statement_id: str) -> Path:
+    """Where a statement's long-form body lives: cases/<id>/statements/<stmt>.txt.
+
+    The CSV row carries the facts (who, role, status, short notes); the
+    verbatim body — composed in the terminal editor — is a text file
+    beside it, named by the slug-safe statement id.
+    """
+    statement_id = validate_slug(statement_id, "statement id")
+    return case_dir(workspace, case_id) / "statements" / f"{statement_id}.txt"
 
 
 def read_statements(workspace: Path, case_id: str) -> list[Statement]:
@@ -99,6 +116,7 @@ def record_statement(
     interviewee: str,
     role: str,
     notes: str,
+    body: str = "",
     actor: str,
 ) -> Statement:
     """Record a new interview statement in status ``recorded``.
@@ -106,6 +124,12 @@ def record_statement(
     Statement ids are unique per case: a second ``recorded`` row under
     an existing id would fork its history, so it is rejected. Signing
     is a separate, attested step — see :func:`sign_statement`.
+
+    ``body`` is the long-form statement text (typically composed in the
+    terminal editor). It is too big and too free-form for the
+    single-line CSV, so it is written verbatim to
+    :func:`body_path` and the CSV row's ``notes`` stay a one-line
+    summary.
     """
     load_case(workspace, case_id)
     statement_id = validate_slug(statement_id, "statement id")
@@ -127,10 +151,16 @@ def record_statement(
         [statement.statement_id, statement.timestamp_utc, statement.interviewee,
          statement.role, statement.status, statement.notes],
     )
+    detail = f"statement {statement_id}: {statement.interviewee} ({statement.role})"
+    if body.strip():
+        path = body_path(workspace, case_id, statement_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body if body.endswith("\n") else body + "\n", encoding="utf-8")
+        detail += f" — body: statements/{statement_id}.txt"
     append_event(
         workspace, case_id, actor=clean_field(actor, "actor", required=True),
         event_type="statement-recorded",
-        detail=f"statement {statement_id}: {statement.interviewee} ({statement.role})",
+        detail=detail,
     )
     return statement
 

@@ -2,9 +2,10 @@
 
 The console's casework commands take an explicit case-id but default
 to the active case; `init <dir>` bootstraps a workspace in one step;
-milestone commands end with a "next:" hint; unknown commands that
-belong to another tool get an affinity error pointing at `use <tool>`.
-These tests pin that behavior so the workflow stays self-explanatory.
+milestone commands end with a "next:" hint; and dispatch is forgiving —
+a tool command typed anywhere switches the active tool to its owner
+(with a notice) instead of erroring. These tests pin that behavior so
+the workflow stays self-explanatory.
 """
 
 import unittest
@@ -113,16 +114,29 @@ class WorkflowTests(unittest.TestCase):
         output = dispatch(self.session, "new case-2026-014 LP office theft")
         self.assertIn("next:", output)
 
-    # -- command affinity ----------------------------------------------------
+    # -- forgiving dispatch -------------------------------------------------
 
-    def test_tool_command_without_use_gets_affinity_error(self):
-        with self.assertRaisesRegex(SuiteError, "'new' is a casework command — `use casework` first"):
-            dispatch(self.session, "new case-2026-014 title")
+    def test_tool_command_at_root_switches_and_runs(self):
+        output = dispatch(self.session, f"init {self.ws}")
+        self.assertEqual(self.session.active_tool, "casework")
+        self.assertTrue(output.startswith("active tool -> casework"))
+        self.assertIn("initialized casework workspace", output)
 
-    def test_affinity_works_while_another_tool_is_active(self):
+    def test_tool_command_switches_away_from_active_tool(self):
         dispatch(self.session, "use cust0dia")
-        with self.assertRaisesRegex(SuiteError, "`use casework` first"):
-            dispatch(self.session, "new case-2026-014 title")
+        output = dispatch(self.session, f"init {self.ws}")
+        self.assertEqual(self.session.active_tool, "casework")
+        self.assertIn("active tool -> casework", output)
+
+    def test_bare_tool_name_selects_the_tool(self):
+        output = dispatch(self.session, "casework")
+        self.assertEqual(self.session.active_tool, "casework")
+        self.assertIn("active tool -> casework", output)
+
+    def test_tool_prefix_runs_the_rest_in_that_context(self):
+        output = dispatch(self.session, f"casework init {self.ws}")
+        self.assertEqual(self.session.active_tool, "casework")
+        self.assertIn("initialized casework workspace", output)
 
     def test_genuinely_unknown_command_still_unknown(self):
         with self.assertRaisesRegex(SuiteError, "unknown command"):

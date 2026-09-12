@@ -81,6 +81,7 @@ def parse_jpeg(data: bytes) -> JpegInfo:
 
     info = JpegInfo(markers=["SOI"])
     position = 2
+    terminated = False  # True once EOI or SOS ends the metadata walk
     while position < len(data):
         # Between segments the byte must be 0xFF (possibly padded). Anything
         # else means we have drifted into scan data or corruption — stop.
@@ -97,6 +98,7 @@ def parse_jpeg(data: bytes) -> JpegInfo:
         info.markers.append(name)
 
         if marker == 0xD9:  # EOI: clean end of file
+            terminated = True
             break
         if marker in _STANDALONE:
             continue
@@ -112,7 +114,13 @@ def parse_jpeg(data: bytes) -> JpegInfo:
 
         _dispatch(info, marker, payload)
         if marker == 0xDA:  # SOS: entropy-coded pixel data follows; stop here
+            terminated = True
             break
+    if not terminated and not info.warnings:
+        # The segment table simply ran out: no EOI ever arrived. Parseable
+        # metadata is still worth reporting, but the missing terminator is
+        # itself an observation (a truncated or hand-edited file).
+        info.warnings.append("no EOI marker reached before end of file; file may be truncated")
     return info
 
 

@@ -14,7 +14,7 @@ Three safety rules live here, each in one audited place:
    becomes a directory name, so this is the path-traversal defense: no
    slashes, no dots, no absolute paths can ever reach the filesystem
    through an identifier. :func:`case_dir` additionally re-checks
-   containment with :func:`cust0dia.paths.is_within` as defense in
+   containment with :func:`chr0nix.core.safety.is_within` as defense in
    depth.
 2. **Commented config CSVs.** ``config/categories.csv`` and
    ``config/taxonomy.csv`` are investigator-edited files. Lines whose
@@ -24,8 +24,8 @@ Three safety rules live here, each in one audited place:
    duplicate ids are rejected — config is input, and input is
    untrusted.
 3. **Append-only with a stable header.** :func:`append_csv_row` is
-   :func:`cust0dia.custody.append_custody_row` generalized to any field
-   set: an existing non-empty file's header must match exactly before a
+   :func:`chr0nix.core.csvx.append_row` bound to casework's error type:
+   an existing non-empty file's header must match exactly before a
    byte is appended (we refuse to append to a file we did not create),
    and the only write performed is append mode.
 """
@@ -35,7 +35,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from cust0dia.paths import is_within
+from chr0nix.core import csvx, fields
+from chr0nix.core.safety import is_within
 
 from . import CaseworkError
 
@@ -134,17 +135,12 @@ def validate_slug(value: str, what: str) -> str:
 def clean_field(value: str, field_name: str, *, required: bool) -> str:
     """Validate and normalize one free-text field for an append-only CSV.
 
-    The same no-control-characters rule as
-    :func:`cust0dia.custody._clean_field`: one record is one line, and
-    a newline inside a field would let a single record smuggle in
-    forged additional rows.
+    The shared no-control-characters rule of
+    :func:`chr0nix.core.fields.clean_field`, bound to
+    :class:`CaseworkError`: one record is one line, and a newline inside
+    a field would let a single record smuggle in forged additional rows.
     """
-    cleaned = value.strip()
-    if any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
-        raise CaseworkError(f"{field_name} must not contain control characters")
-    if required and not cleaned:
-        raise CaseworkError(f"{field_name} must not be empty")
-    return cleaned
+    return fields.clean_field(value, field_name, required=required, error=CaseworkError)
 
 
 def case_dir(workspace: Path, case_id: str) -> Path:
@@ -164,36 +160,20 @@ def case_dir(workspace: Path, case_id: str) -> Path:
 def append_csv_row(path: Path, fields: tuple[str, ...], row: list[str]) -> None:
     """Append one row to an append-only CSV, creating it if needed.
 
-    :func:`cust0dia.custody.append_custody_row`'s pattern exactly: an
+    :func:`chr0nix.core.csvx.append_row`'s pattern exactly: an
     existing non-empty file's header must match ``fields`` precisely
     (we refuse to append to a file we did not create), the parent is
     created on first write, and the only write ever performed is adding
     bytes at the end of the file. Callers clean free-text fields with
     :func:`clean_field` before building ``row``.
     """
-    needs_header = True
-    if path.exists():
-        if path.stat().st_size > 0:
-            _require_matching_header(path, fields)
-            needs_header = False
-    else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, lineterminator="\n")
-        if needs_header:
-            writer.writerow(fields)
-        writer.writerow(row)
-
-
-def _require_matching_header(path: Path, fields: tuple[str, ...]) -> None:
-    """Refuse to append unless the existing file has exactly our header."""
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        first_line = handle.readline().rstrip("\n")
-    if first_line != ",".join(fields):
-        raise CaseworkError(
-            f"refusing to append to {path}: its header does not match "
-            "the casework schema (is this the right file?)"
-        )
+    csvx.append_row(
+        path,
+        fields,
+        row,
+        what="the casework schema",
+        error=CaseworkError,
+    )
 
 
 def init_workspace(root: Path) -> list[Path]:
@@ -216,8 +196,14 @@ def init_workspace(root: Path) -> list[Path]:
     files = {
         root / "config" / "categories.csv": STARTER_CATEGORIES,
         root / "config" / "taxonomy.csv": STARTER_TAXONOMY,
-        root / "entities" / "subjects.csv": "subject_id,nickname,descriptor_summary\n",
-        root / "entities" / "vehicles.csv": "vehicle_id,plate,description\n",
+        root / "entities" / "subjects.csv": (
+            "subject_id,nickname,descriptor_summary,aliases,date_of_birth,"
+            "physical_description,phones,emails,usernames,addresses,employer,notes\n"
+        ),
+        root / "entities" / "vehicles.csv": (
+            "vehicle_id,plate,description,jurisdiction,vin,make,model,year,"
+            "color,body_style,registered_owner,notes\n"
+        ),
         root / "entities" / "links.csv": "case_id,entity_type,entity_id,role,notes\n",
     }
     for path, content in files.items():

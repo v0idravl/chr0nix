@@ -47,6 +47,7 @@ from .. import tiers
 from ..casework import CaseworkError
 from ..casework import cases as casework_cases
 from ..casework import entities as casework_entities
+from ..casework import export as casework_export
 from ..casework import intake as casework_intake
 from ..casework import statements as casework_statements
 from ..casework import synopsis as casework_synopsis
@@ -60,6 +61,7 @@ from ..timeline import render as timeline_render
 from ..timeline import schema as timeline_schema
 from ..timeline import timeline as timeline_core
 from ..timeline.timeutil import utcnow as timeline_utcnow
+from .forms import EDIT_SENTINEL, EditorHandoff, GuidedForm, flatten_long_text
 from .session import SessionContext
 
 #: A console command handler: takes the session and the arguments that
@@ -158,7 +160,10 @@ def _manifest_phase(session: SessionContext) -> str:
 def _verify_phase(session: SessionContext) -> str:
     _require(session.evidence_dir is None, "evidence is not set (use: set evidence <dir>)")
     _, entries = manifest.read_manifest(session.manifest_path)
-    results = verify.verify_tree(session.evidence_dir, entries)
+    # Same self-sealing-bundle exemption as the CLI: a manifest inside
+    # the tree it describes cannot list itself.
+    exclusions = verify.manifest_exclusions(session.manifest_path, session.evidence_dir)
+    results = verify.verify_tree(session.evidence_dir, entries, exclude=exclusions)
     lines = []
     for result in results:
         line = f"{result.status:<8}{result.relative_path}"
@@ -880,24 +885,7 @@ def _cmd_casework_new(session: SessionContext, args: list[str]) -> str:
 
 def _casework_cases_listing(session: SessionContext) -> str:
     """The case table shared by the ``cases`` command and ``run``."""
-    workspace = _session_workspace(session)
-    all_cases = casework_cases.list_cases(workspace)
-    if not all_cases:
-        return "no cases yet (use: new <case-id> <title...>)"
-    links = casework_entities.read_links(workspace)
-    lines = [f"{'case':<20}{'status':<11}{'cats':>5}{'links':>6}  title"]
-    for case in all_cases:
-        count = sum(
-            1
-            for link in links
-            if link.case_id == case.id
-            or (link.entity_type == "case" and link.entity_id == case.id)
-        )
-        lines.append(
-            f"{case.id:<20}{case.status:<11}{len(case.categories):>5}"
-            f"{count:>6}  {case.title}"
-        )
-    return "\n".join(lines)
+    return casework_cases.render_case_table(_session_workspace(session))
 
 
 def _cmd_casework_cases(session: SessionContext, args: list[str]) -> str:
@@ -986,11 +974,238 @@ def _cmd_casework_event(session: SessionContext, args: list[str]) -> str:
     case_id, rest = _casework_resolve_case(session, workspace, args, "event [case-id] <event-type> <detail...>")
     if len(rest) < 2:
         raise SuiteError("usage: event [case-id] <event-type> <detail...>")
+    if rest[1:] == [EDIT_SENTINEL]:
+        return _event_editor_handoff(session, workspace, case_id, rest[0])
     casework_cases.append_event(
         workspace, case_id, actor=_casework_actor(session),
         event_type=rest[0], detail=" ".join(rest[1:]),
     )
     return f"event logged on {case_id} ({rest[0]})"
+
+
+def _event_editor_handoff(
+    session: SessionContext, workspace: Path, case_id: str, event_type: str
+) -> str:
+    """``event <type> :edit`` — compose a long detail in $EDITOR.
+
+    Always raises :class:`EditorHandoff`; the UI (or a test) resumes it
+    with the composed text, which is flattened to one line for the
+    append-only event log.
+    """
+
+    def resume(text: str | None) -> tuple[str, bool]:
+        if text is None:
+            return "editor aborted — no event logged", True
+        detail = flatten_long_text(text)
+        casework_cases.append_event(
+            workspace, case_id, actor=_casework_actor(session),
+            event_type=event_type, detail=detail,
+        )
+        return f"event logged on {case_id} ({event_type}) — detail composed in editor", True
+
+    raise EditorHandoff(
+        label=f"event detail ({case_id}: {event_type})",
+        instructions=(
+            f"Compose the detail for a '{event_type}' event on case {case_id}.",
+            "Lines starting with # are instructions and are never saved.",
+            "The text is stored as one log line (newlines become ';').",
+            "Save and exit to log the event; exit without saving to abort.",
+        ),
+        resume=resume,
+    )
+
+
+# ---------------------------------------------------------------------------
+# casework entity profiles — the guided "fill in the boxes" flow.
+# ---------------------------------------------------------------------------
+
+
+def _profile_kind(kind: str) -> dict:
+    """The per-entity-type wiring shared by the profile commands."""
+    if kind == "subject":
+        return {
+            "fields": casework_entities.SUBJECT_PROFILE_FIELDS,
+            "field_names": casework_entities.SUBJECT_PROFILE_FIELD_NAMES,
+            "get": casework_entities.get_subject,
+            "register": casework_entities.register_subject,
+            "update": casework_entities.update_subject,
+            "read_all": casework_entities.read_subjects,
+            "values": casework_entities.subject_values,
+            "card": casework_entities.render_subject_card,
+            "title": "subject profile",
+        }
+    return {
+        "fields": casework_entities.VEHICLE_PROFILE_FIELDS,
+        "field_names": casework_entities.VEHICLE_PROFILE_FIELD_NAMES,
+        "get": casework_entities.get_vehicle,
+        "register": casework_entities.register_vehicle,
+        "update": casework_entities.update_vehicle,
+        "read_all": casework_entities.read_vehicles,
+        "values": casework_entities.vehicle_values,
+        "card": casework_entities.render_vehicle_card,
+        "title": "transportation profile (vehicle)",
+    }
+
+
+def _linked_cases(workspace: Path, entity_type: str, entity_id: str) -> list[str]:
+    """Every case linked to one entity, sorted — shown under the card."""
+    return sorted(
+        {
+            link.case_id
+            for link in casework_entities.read_links(workspace)
+            if link.entity_type == entity_type and link.entity_id == entity_id
+        }
+    )
+
+
+def _profile_add(session: SessionContext, kind: str, args: list[str]) -> str:
+    """``<kind> add [id]`` — walk the profile form, then register."""
+    if len(args) > 1:
+        raise SuiteError(f"usage: {kind} add [{kind}-id]")
+    if session.form is not None:
+        raise SuiteError("a form is already active (finish or `cancel` it first)")
+    workspace = _session_workspace(session)
+    spec = _profile_kind(kind)
+    id_name = f"{kind}_id"
+
+    fields: list[casework_entities.ProfileField] = []
+    initial: dict[str, str] = {}
+    if args:
+        entity_id = casework_workspace.validate_slug(args[0], f"{kind} id")
+        if _profile_exists(spec, workspace, entity_id):
+            raise SuiteError(
+                f"{kind} {entity_id!r} is already registered (use: {kind} edit {entity_id})"
+            )
+        initial[id_name] = entity_id
+    else:
+        fields.append(
+            casework_entities.ProfileField(
+                id_name,
+                f"{kind.capitalize()} id",
+                "slug-safe: lowercase letters, digits, hyphens (e.g. subj-001)",
+            )
+        )
+    fields.extend(spec["fields"])
+
+    def check_id(value: str) -> None:
+        entity_id = casework_workspace.validate_slug(value, f"{kind} id")
+        if _profile_exists(spec, workspace, entity_id):
+            raise SuiteError(f"{kind} {entity_id!r} is already registered")
+
+    def commit(values: dict[str, str]) -> str:
+        values = dict(values)
+        entity_id = values.pop(id_name)
+        entity = spec["register"](workspace, entity_id, **values)
+        linked_note = f"next: link [case-id] {kind} {entity_id} <role...>"
+        return (
+            f"registered {spec['title']} {entity_id}\n"
+            f"{spec['card'](entity)}\n{linked_note}"
+        )
+
+    session.form = GuidedForm(
+        title=f"new {spec['title']}",
+        fields=tuple(fields),
+        values=initial,
+        commit=commit,
+        validators={id_name: check_id},
+    )
+    return session.form.start()
+
+
+def _profile_edit(session: SessionContext, kind: str, args: list[str]) -> str:
+    """``<kind> edit <id>`` — the same form, prefilled with current values."""
+    if len(args) != 1:
+        raise SuiteError(f"usage: {kind} edit <{kind}-id>")
+    if session.form is not None:
+        raise SuiteError("a form is already active (finish or `cancel` it first)")
+    workspace = _session_workspace(session)
+    spec = _profile_kind(kind)
+    entity = spec["get"](workspace, args[0])
+    stored = spec["values"](entity)
+    prefill = {field.name: stored.get(field.name, "") for field in spec["fields"]}
+
+    def commit(values: dict[str, str]) -> str:
+        updated = spec["update"](workspace, args[0], **values)
+        return f"updated {spec['title']} {args[0]}\n{spec['card'](updated)}"
+
+    session.form = GuidedForm(
+        title=f"edit {spec['title']} {args[0]}",
+        fields=spec["fields"],
+        values=prefill,
+        commit=commit,
+    )
+    return session.form.start()
+
+
+def _profile_show(session: SessionContext, kind: str, args: list[str]) -> str:
+    """``<kind> show <id>`` — the aligned profile card plus linked cases."""
+    if len(args) != 1:
+        raise SuiteError(f"usage: {kind} show <{kind}-id>")
+    workspace = _session_workspace(session)
+    spec = _profile_kind(kind)
+    entity = spec["get"](workspace, args[0])
+    linked = _linked_cases(workspace, kind, args[0])
+    return (
+        f"{spec['card'](entity)}\n"
+        f"  linked cases: {', '.join(linked) if linked else '(none)'}"
+    )
+
+
+def _profile_set(session: SessionContext, kind: str, args: list[str]) -> str:
+    """``<kind> set <id> <field> [value...]`` — the one-shot quick path."""
+    if len(args) < 2:
+        raise SuiteError(f"usage: {kind} set <{kind}-id> <field> [value...]")
+    workspace = _session_workspace(session)
+    spec = _profile_kind(kind)
+    entity_id, field_name = args[0], args[1]
+    if field_name not in spec["field_names"]:
+        raise SuiteError(
+            f"unknown {kind} field {field_name!r}; "
+            f"profile fields: {', '.join(spec['field_names'])}"
+        )
+    spec["get"](workspace, entity_id)  # unknown ids fail before any write
+    raw = " ".join(args[2:])
+    multi = field_name in {
+        field.name for field in spec["fields"] if field.multi
+    }
+    value = (
+        [item.strip() for item in raw.split(",") if item.strip()] if multi else raw
+    )
+    updated = spec["update"](workspace, entity_id, **{field_name: value})
+    stored = spec["values"](updated)[field_name]
+    display = stored.replace(";", ", ") if multi else stored
+    return f"{entity_id}: {field_name} -> {display or '(cleared)'}"
+
+
+def _profile_list(session: SessionContext, kind: str, args: list[str]) -> str:
+    """``subjects`` / ``vehicles`` — the registry as a compact table."""
+    if args:
+        raise SuiteError(f"usage: {kind}s")
+    workspace = _session_workspace(session)
+    if kind == "subject":
+        subjects = casework_entities.read_subjects(workspace)
+        if not subjects:
+            return "no subjects registered (add one with: subject add)"
+        lines = [f"{'subject_id':<20}{'nickname':<24}descriptor_summary"]
+        lines += [
+            f"{s.subject_id:<20}{s.nickname:<24}{s.descriptor_summary}"
+            for s in subjects
+        ]
+        return "\n".join(lines)
+    vehicles = casework_entities.read_vehicles(workspace)
+    if not vehicles:
+        return "no vehicles registered (add one with: vehicle add)"
+    lines = [f"{'vehicle_id':<20}{'plate':<16}description"]
+    lines += [f"{v.vehicle_id:<20}{v.plate:<16}{v.description}" for v in vehicles]
+    return "\n".join(lines)
+
+
+def _profile_exists(spec: dict, workspace: Path, entity_id: str) -> bool:
+    try:
+        spec["get"](workspace, entity_id)
+    except CaseworkError:
+        return False
+    return True
 
 
 def _cmd_casework_synopsis(session: SessionContext, args: list[str]) -> str:
@@ -1055,6 +1270,8 @@ def _cmd_casework_statement(session: SessionContext, args: list[str]) -> str:
         raise SuiteError(
             "usage: statement [case-id] <statement-id> <interviewee> <role> [notes...]"
         )
+    if rest[3:] == [EDIT_SENTINEL]:
+        return _statement_editor_handoff(session, workspace, case_id, rest)
     statement = casework_statements.record_statement(
         workspace, case_id, rest[0],
         interviewee=rest[1], role=rest[2], notes=" ".join(rest[3:]),
@@ -1063,6 +1280,46 @@ def _cmd_casework_statement(session: SessionContext, args: list[str]) -> str:
     return (
         f"recorded statement {statement.statement_id} on {case_id} "
         f"({statement.interviewee}, {statement.role}) — status: recorded"
+    )
+
+
+def _statement_editor_handoff(
+    session: SessionContext, workspace: Path, case_id: str, rest: list[str]
+) -> str:
+    """``statement <id> <interviewee> <role> :edit`` — compose the body.
+
+    The interviewee/role/notes stay in the append-only statements.csv;
+    the long-form body lands in
+    ``cases/<case-id>/statements/<statement-id>.txt`` (see
+    :func:`chr0nix.casework.statements.record_statement`). Always raises
+    :class:`EditorHandoff`; the resume callback records the statement.
+    """
+    statement_id, interviewee, role = rest[:3]
+
+    def resume(text: str | None) -> tuple[str, bool]:
+        if text is None:
+            return "editor aborted — statement not recorded", True
+        statement = casework_statements.record_statement(
+            workspace, case_id, statement_id,
+            interviewee=interviewee, role=role, notes="",
+            body=text, actor=_casework_actor(session),
+        )
+        return (
+            f"recorded statement {statement.statement_id} on {case_id} "
+            f"({statement.interviewee}, {statement.role}) — status: recorded; "
+            f"body composed in editor -> {casework_statements.body_path(workspace, case_id, statement_id)}",
+            True,
+        )
+
+    raise EditorHandoff(
+        label=f"statement body ({case_id}: {statement_id})",
+        instructions=(
+            f"Compose the full statement body for {statement_id} "
+            f"({interviewee}, {role}) on case {case_id}.",
+            "Lines starting with # are instructions and are never saved.",
+            "Save and exit to record the statement; exit without saving to abort.",
+        ),
+        resume=resume,
     )
 
 
@@ -1094,23 +1351,37 @@ def _cmd_casework_statements(session: SessionContext, args: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _cmd_casework_export(session: SessionContext, args: list[str]) -> str:
+    """``export [case-id] [out-dir]`` — assemble the sealed case bundle.
+
+    GREEN: a read-only copy operation over the workspace. The default
+    output root is ``<workspace>/exports`` (inside the workspace but
+    outside every evidentiary tree, which ``export_case`` re-checks);
+    an explicit target is also checked against the session evidence dir.
+    """
+    workspace = _session_workspace(session)
+    case_id, rest = _casework_resolve_case(
+        session, workspace, args, "export [case-id] [out-dir]"
+    )
+    if len(rest) > 1:
+        raise SuiteError("usage: export [case-id] [out-dir]")
+    out_root = Path(rest[0]).expanduser() if rest else None
+    if out_root is not None:
+        _refuse_evidence_write(session, out_root)
+    bundle = casework_export.export_case(
+        workspace, case_id, out_root, actor=session.actor or ""
+    )
+    return (
+        f"exported case {case_id} -> {bundle}\n"
+        "sealed: manifest.csv + manifest.json written at the bundle root\n"
+        f"verify with: chr0nix verify {bundle / 'manifest.json'} {bundle}"
+    )
+
+
 def _run_casework(session: SessionContext) -> str:
     """The case table plus a status-count summary of the whole workspace."""
     listing = _casework_cases_listing(session)
-    workspace = _session_workspace(session)
-    all_cases = casework_cases.list_cases(workspace)
-    counts = {status: 0 for status in casework_cases.STATUS_ORDER}
-    for case in all_cases:
-        counts[case.status] += 1
-    breakdown = ", ".join(
-        f"{counts[status]} {status}"
-        for status in casework_cases.STATUS_ORDER
-        if counts[status]
-    )
-    summary = f"workspace: {len(all_cases)} case(s)"
-    if breakdown:
-        summary += f" — {breakdown}"
-    return f"{listing}\n{summary}"
+    return f"{listing}\n{casework_cases.render_status_summary(_session_workspace(session))}"
 
 
 CASEWORK_TOOL = Tool(
@@ -1187,10 +1458,76 @@ CASEWORK_TOOL = Tool(
             handler=_cmd_casework_links,
         ),
         Command(
+            name="subject add",
+            usage="subject add [subject-id]",
+            summary="guided profile form: walk every subject field, then "
+            "register (Enter skips, `done` saves, `cancel` aborts)",
+            handler=lambda s, a: _profile_add(s, "subject", a),
+        ),
+        Command(
+            name="subject edit",
+            usage="subject edit <subject-id>",
+            summary="the profile form prefilled with the subject's current "
+            "values (Enter keeps each)",
+            handler=lambda s, a: _profile_edit(s, "subject", a),
+        ),
+        Command(
+            name="subject show",
+            usage="subject show <subject-id>",
+            summary="print a subject's profile card and linked cases",
+            handler=lambda s, a: _profile_show(s, "subject", a),
+        ),
+        Command(
+            name="subject set",
+            usage="subject set <subject-id> <field> [value...]",
+            summary="one-shot field update (multi fields comma-separated; "
+            "no value clears the field)",
+            handler=lambda s, a: _profile_set(s, "subject", a),
+        ),
+        Command(
+            name="subjects",
+            usage="subjects",
+            summary="list the subject registry (id, nickname, descriptor)",
+            handler=lambda s, a: _profile_list(s, "subject", a),
+        ),
+        Command(
+            name="vehicle add",
+            usage="vehicle add [vehicle-id]",
+            summary="guided transportation-profile form: plate, VIN, make, "
+            "model, ... then register",
+            handler=lambda s, a: _profile_add(s, "vehicle", a),
+        ),
+        Command(
+            name="vehicle edit",
+            usage="vehicle edit <vehicle-id>",
+            summary="the transportation-profile form prefilled with current "
+            "values (Enter keeps each)",
+            handler=lambda s, a: _profile_edit(s, "vehicle", a),
+        ),
+        Command(
+            name="vehicle show",
+            usage="vehicle show <vehicle-id>",
+            summary="print a vehicle's transportation-profile card and "
+            "linked cases",
+            handler=lambda s, a: _profile_show(s, "vehicle", a),
+        ),
+        Command(
+            name="vehicle set",
+            usage="vehicle set <vehicle-id> <field> [value...]",
+            summary="one-shot field update (no value clears the field)",
+            handler=lambda s, a: _profile_set(s, "vehicle", a),
+        ),
+        Command(
+            name="vehicles",
+            usage="vehicles",
+            summary="list the vehicle registry (id, plate, description)",
+            handler=lambda s, a: _profile_list(s, "vehicle", a),
+        ),
+        Command(
             name="event",
-            usage="event [case-id] <event-type> <detail...>",
+            usage="event [case-id] <event-type> <detail...|:edit>",
             summary="append an event to the case's append-only log "
-            "(actor comes from `set actor`)",
+            "(actor comes from `set actor`; :edit composes the detail in $EDITOR)",
             handler=_cmd_casework_event,
         ),
         Command(
@@ -1223,8 +1560,9 @@ CASEWORK_TOOL = Tool(
         ),
         Command(
             name="statement",
-            usage="statement [case-id] <statement-id> <interviewee> <role> [notes...]",
-            summary="record an interview statement (status: recorded)",
+            usage="statement [case-id] <statement-id> <interviewee> <role> [notes...|:edit]",
+            summary="record an interview statement (status: recorded; :edit "
+            "composes the long-form body in $EDITOR)",
             handler=_cmd_casework_statement,
         ),
         Command(
@@ -1243,6 +1581,14 @@ CASEWORK_TOOL = Tool(
             summary="list a case's statements with current status "
             "(recorded / signed)",
             handler=_cmd_casework_statements,
+        ),
+        Command(
+            name="export",
+            usage="export [case-id] [out-dir]",
+            summary="assemble the case's sealed export bundle "
+            "(CASE-REPORT.md + records + self-manifest; default out: "
+            "<workspace>/exports)",
+            handler=_cmd_casework_export,
         ),
     ),
 )
@@ -1298,22 +1644,8 @@ def _cmd_guide_capture(session: SessionContext, args: list[str]) -> str:
         )
     actor = _casework_actor(session)
 
-    pairs: list[tuple[str, str]] = []
-    for token in args[1:]:
-        field, separator, value = token.partition("=")
-        if not separator:
-            raise SuiteError(
-                f"expected <field>=<value>, got {token!r} "
-                f"(fields: {', '.join(method.capture_fields)})"
-            )
-        if field not in method.capture_fields:
-            raise SuiteError(
-                f"unknown field {field!r} for {method.id}; "
-                f"capture fields: {', '.join(method.capture_fields)}"
-            )
-        pairs.append((field, value.strip()))
-
-    detail = f"{method.id}: " + "; ".join(f"{field}={value}" for field, value in pairs)
+    pairs = guide_methods.parse_capture_pairs(method, args[1:])
+    detail = guide_methods.capture_detail(method, pairs)
     casework_cases.append_event(
         workspace, session.active_case,
         actor=actor, event_type="osint-finding", detail=detail,

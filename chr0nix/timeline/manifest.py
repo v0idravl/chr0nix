@@ -9,6 +9,12 @@ tooling suite, so that:
   inputs have not changed since the timeline was built, and
 * the manifest slots into a chain-of-custody record without conversion.
 
+The format and its builders now live in :mod:`chr0nix.core.manifest`;
+this module keeps the original timeline API working on top of it,
+including the explicit-file-list mode (timeline manifests exactly the
+inputs it read, hashed under their computed common root, rather than
+walking a directory).
+
 Format contract (shared, do not diverge):
 
 * CSV header: ``relative_path,size_bytes,sha256,mtime_utc,hashed_at_utc``
@@ -24,74 +30,33 @@ Hashing is strictly read-only.
 
 from __future__ import annotations
 
-import csv
-import hashlib
-import io
-import json
-import os
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
+
+from chr0nix.core import manifest as _core_manifest
+from chr0nix.core.hashing import sha256_file
 
 from .timeutil import format_utc
 
 #: The shared CSV header, verbatim. Other suite tools depend on it.
-MANIFEST_CSV_HEADER: tuple[str, ...] = (
-    "relative_path",
-    "size_bytes",
-    "sha256",
-    "mtime_utc",
-    "hashed_at_utc",
-)
+MANIFEST_CSV_HEADER: tuple[str, ...] = _core_manifest.MANIFEST_FIELDS
 
-#: Read files in 1 MiB chunks: large DVR exports hash without loading
-#: the whole file into memory.
-_CHUNK_SIZE = 1024 * 1024
+#: One fingerprinted file: identity, size, hash, and two timestamps.
+#: Defined once in :mod:`chr0nix.core.manifest` and re-exported here.
+ManifestEntry = _core_manifest.ManifestEntry
 
+#: Common ancestor directory of a set of file paths (re-export).
+common_root = _core_manifest.common_root
 
-@dataclass(frozen=True)
-class ManifestEntry:
-    """One fingerprinted file: identity, size, hash, and two timestamps.
-
-    ``mtime_utc`` records when the evidence file itself was last
-    modified; ``hashed_at_utc`` records when chr0nix observed it. The
-    pair brackets the chain of custody for the analysis run.
-    """
-
-    relative_path: str
-    size_bytes: int
-    sha256: str
-    mtime_utc: str
-    hashed_at_utc: str
-
-    def as_dict(self) -> dict[str, object]:
-        """Serialize in the shared JSON entry shape (ordered keys)."""
-        return {
-            "relative_path": self.relative_path,
-            "size_bytes": self.size_bytes,
-            "sha256": self.sha256,
-            "mtime_utc": self.mtime_utc,
-            "hashed_at_utc": self.hashed_at_utc,
-        }
-
-
-def sha256_file(path: Path) -> str:
-    """Return the hex SHA-256 digest of a file, read incrementally."""
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(_CHUNK_SIZE), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def common_root(paths: list[Path]) -> Path:
-    """Return the common ancestor directory of the given file paths.
-
-    With a single input, the root is that file's parent directory, so
-    its relative path in the manifest is simply its filename.
-    """
-    resolved = [p.resolve() for p in paths]
-    return Path(os.path.commonpath([str(p.parent) for p in resolved]))
+__all__ = [
+    "MANIFEST_CSV_HEADER",
+    "ManifestEntry",
+    "sha256_file",
+    "common_root",
+    "build_manifest",
+    "render_manifest_csv",
+    "render_manifest_json",
+]
 
 
 def build_manifest(paths: list[Path], hashed_at: datetime) -> tuple[Path, list[ManifestEntry]]:
@@ -102,51 +67,18 @@ def build_manifest(paths: list[Path], hashed_at: datetime) -> tuple[Path, list[M
     read from the clock here) so the whole run shares one observation
     timestamp and tests can pin it.
     """
-    root = common_root(paths)
-    entries: list[ManifestEntry] = []
-    for path in paths:
-        resolved = path.resolve()
-        stat = resolved.stat()
-        relative = resolved.relative_to(root).as_posix()
-        entries.append(
-            ManifestEntry(
-                relative_path=relative,
-                size_bytes=stat.st_size,
-                sha256=sha256_file(resolved),
-                mtime_utc=format_utc(datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)),
-                hashed_at_utc=format_utc(hashed_at),
-            )
-        )
-    entries.sort(key=lambda e: e.relative_path)
-    return root, entries
+    return _core_manifest.build_manifest_for_files(paths, hashed_at=format_utc(hashed_at))
 
 
 def render_manifest_csv(entries: list[ManifestEntry]) -> str:
     """Render entries as CSV text in the shared format."""
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(MANIFEST_CSV_HEADER)
-    for entry in entries:
-        writer.writerow(
-            [
-                entry.relative_path,
-                entry.size_bytes,
-                entry.sha256,
-                entry.mtime_utc,
-                entry.hashed_at_utc,
-            ]
-        )
-    return buffer.getvalue()
+    return _core_manifest.render_csv(entries)
 
 
 def render_manifest_json(
     entries: list[ManifestEntry], root: Path, tool: str, generated_at: datetime
 ) -> str:
     """Render entries as JSON in the shared format."""
-    payload = {
-        "tool": tool,
-        "generated_at_utc": format_utc(generated_at),
-        "root": str(root),
-        "entries": [entry.as_dict() for entry in entries],
-    }
-    return json.dumps(payload, indent=2) + "\n"
+    return _core_manifest.render_json(
+        entries, root, tool=tool, generated_at=format_utc(generated_at)
+    )

@@ -21,7 +21,42 @@ from ..errors import SuiteError
 
 #: Display order for `methods` and `run`: categories are fixed, not
 #: derived, so the listing is stable as the catalogue grows.
-CATEGORIES = ("identifier-research", "imagery", "infrastructure", "property", "environmental", "preservation")
+CATEGORIES = ("identifier-research", "imagery", "infrastructure", "transport", "property", "environmental", "preservation")
+
+#: Base URL of Bellingcat's Online Investigation Toolkit — the remote
+#: pointer for tool suggestions. Printed for the operator's own browser;
+#: the suite never fetches it.
+TOOLKIT_BASE = "https://bellingcat.gitbook.io/toolkit"
+
+
+@dataclass(frozen=True)
+class ToolReference:
+    """One external-tool pointer: a name, a URL, and a one-line caveat.
+
+    References are printed by ``hint`` / ``guide show`` for the operator
+    to open in their own browser — the suite contains no network code
+    and never fetches them. The caveat carries the one thing that most
+    often matters in court or compliance review (cost, account
+    requirements, jurisdictional sensitivity).
+    """
+
+    name: str
+    url: str
+    caveat: str = ""
+
+
+def toolkit_category(slug: str) -> ToolReference:
+    """A reference to a whole toolkit category (e.g. ``transport``)."""
+    return ToolReference(
+        f"Bellingcat toolkit: {slug.replace('-', ' ')}",
+        f"{TOOLKIT_BASE}/categories/{slug}",
+        "curated category listing; inclusion is not endorsement",
+    )
+
+
+def toolkit_tool(name: str, slug: str, caveat: str = "") -> ToolReference:
+    """A reference to one tool's toolkit entry."""
+    return ToolReference(name, f"{TOOLKIT_BASE}/more/all-tools/{slug}", caveat)
 
 
 @dataclass(frozen=True)
@@ -34,6 +69,10 @@ class Method:
     ``related`` names the natural next-tier methods — ``capture``
     prints them as follow-up suggestions, so a recorded finding leads
     the investigator to the next corroboration step.
+
+    ``tool_references`` are printable pointers to current external
+    tooling (grounded in Bellingcat's toolkit); ``tools`` stays the
+    bare name list for quick scanning.
     """
 
     id: str
@@ -46,6 +85,7 @@ class Method:
     capture_fields: tuple[str, ...]
     tools: tuple[str, ...]
     related: tuple[str, ...]
+    tool_references: tuple[ToolReference, ...] = ()
 
 
 #: The catalogue, in display order within each category. Person-focused
@@ -83,8 +123,16 @@ METHODS: tuple[Method, ...] = (
             "https://www.google.com/search?q=%22{query}%22",
         ),
         capture_fields=("platform", "profile_url", "confidence", "notes"),
-        tools=("Sherlock", "Maigret"),
+        tools=("Sherlock", "Maigret", "WhatsMyName", "Blackbird"),
         related=("reverse-image", "email-research", "web-archive"),
+        tool_references=(
+            toolkit_tool("Sherlock", "sherlock", "runs locally; check its per-site list before trusting a 'not found'"),
+            toolkit_tool("Maigret", "maigret", "richer per-site metadata than most name checkers"),
+            toolkit_tool("WhatsMyName", "whats-my-name", "browser-based; no install"),
+            toolkit_tool("Blackbird", "blackbird", "also checks email addresses"),
+            toolkit_category("people"),
+            toolkit_category("social-media"),
+        ),
     ),
     Method(
         id="email-research",
@@ -118,8 +166,53 @@ METHODS: tuple[Method, ...] = (
             "https://www.google.com/search?q=%22{query}%22",
         ),
         capture_fields=("service", "result", "source_url", "notes"),
-        tools=("holehe",),
-        related=("username-search", "web-archive"),
+        tools=("holehe", "Ghunt (Google accounts)"),
+        related=("username-search", "breach-corpus", "web-archive"),
+        tool_references=(
+            toolkit_tool("Have I Been Pwned", "have-i-been-pwned", "breach appearances only; never enter credentials anywhere"),
+            toolkit_tool("Ghunt", "ghunt", "Google-account signals; use only where authorized"),
+            toolkit_category("people"),
+        ),
+    ),
+    Method(
+        id="breach-corpus",
+        name="Breach-corpus checking",
+        tier=tiers.YELLOW,
+        category="identifier-research",
+        summary=(
+            "Check whether an identifier appears in known data breaches — "
+            "lawful framing: establish exposure, never touch the leaked data."
+        ),
+        steps=(
+            "Define the purpose before you search: breach checking establishes "
+            "that an address, number, or handle is real, active, and roughly "
+            "how old it is. That is the lawful use. Downloading, purchasing, "
+            "or replaying leaked credentials is not — never test a password, "
+            "never log in, never redistribute corpus content.",
+            "Start with Have I Been Pwned (handoff below): breach names and "
+            "dates for an email address, no payload data.",
+            "Aggregators (DeHashed, Leak-Lookup, Intelligence X) index the "
+            "corpus itself, including partial payloads. Where your "
+            "jurisdiction and authorization allow looking, record *that* an "
+            "entry exists and its breach/date — not the leaked values.",
+            "A breach appearance is corroboration, not identity: shared and "
+            "recycled addresses are common. Cross-check with username-search "
+            "before attributing anything.",
+            "Capture the breach name, breach date, and the source you checked "
+            "— never passwords, hashes, or personal payload fields.",
+        ),
+        handoffs=(
+            "https://haveibeenpwned.com/account/{query}",
+        ),
+        capture_fields=("breach_name", "breach_date", "source", "notes"),
+        tools=("DeHashed", "Leak-Lookup", "Intelligence X"),
+        related=("email-research", "username-search"),
+        tool_references=(
+            toolkit_tool("Have I Been Pwned", "have-i-been-pwned", "breach metadata only; the safe first stop"),
+            toolkit_tool("DeHashed", "dehashed", "indexes payload fields — check your legal basis before viewing"),
+            toolkit_tool("Leak-Lookup", "leak-lookup", "same caveat: exposure yes, payloads no"),
+            toolkit_tool("Intelx.io", "intelx.io", "broad breach index; some features paywalled"),
+        ),
     ),
     Method(
         id="phone-research",
@@ -151,8 +244,12 @@ METHODS: tuple[Method, ...] = (
             "https://www.google.com/search?q=%22{query}%22",
         ),
         capture_fields=("carrier", "line_type", "country", "notes"),
-        tools=("phoneinfoga",),
+        tools=("phoneinfoga", "Truecaller (reverse lookup, jurisdiction-dependent)"),
         related=("username-search",),
+        tool_references=(
+            toolkit_tool("TrueCaller", "truecaller", "crowdsourced caller-ID; accuracy and legality vary by jurisdiction"),
+            toolkit_category("people"),
+        ),
     ),
     Method(
         id="satellite-imagery",
@@ -187,6 +284,12 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("coordinates", "imagery_date", "zoom", "source", "notes"),
         tools=(),
         related=("maps-geolocation", "web-archive"),
+        tool_references=(
+            toolkit_tool("Google Earth Pro", "google-earth-pro", "historical imagery timeline; free desktop install"),
+            toolkit_tool("Sentinel Hub Playground", "sentinal-hub-playground", "dated ESA imagery, free tier"),
+            toolkit_tool("Apollo Image Hunter", "apollo-mapping", "commercial imagery search/purchase without subscription"),
+            toolkit_category("maps-and-satellites"),
+        ),
     ),
     Method(
         id="maps-geolocation",
@@ -217,6 +320,14 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("location", "confidence", "evidence", "notes"),
         tools=(),
         related=("satellite-imagery", "reverse-image"),
+        tool_references=(
+            toolkit_tool("GeoHints", "geohints", "region-specific street furniture reference (poles, signs, bollards)"),
+            toolkit_tool("SunCalc", "suncalc", "sun position/shadow modeling for a date and place"),
+            toolkit_tool("ShadeMap", "shademap", "global building/mountain shadow simulation"),
+            toolkit_tool("Mapillary", "mapillary", "crowdsourced street-level imagery beyond the big two"),
+            toolkit_tool("KartaView", "kartaview", "another crowdsourced street-level source"),
+            toolkit_category("geolocation"),
+        ),
     ),
     Method(
         id="domain-infrastructure",
@@ -249,6 +360,14 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("domain", "record_type", "value", "source", "notes"),
         tools=(),
         related=("web-archive",),
+        tool_references=(
+            toolkit_tool("DomainTools Whois Lookup", "domaintools-whois-lookup", "deep history; paid tiers"),
+            toolkit_tool("Whoxy", "whoxy", "whois history with a usable free tier"),
+            toolkit_tool("ICANN Lookup", "icann-lookup", "current registration data, authoritative-ish"),
+            toolkit_tool("Urlscan.io", "urlscan.io", "live site analysis; scans are public by default — do not submit sensitive URLs"),
+            toolkit_tool("Shodan", "shodan", "device/service exposure; passive search only"),
+            toolkit_category("websites"),
+        ),
     ),
     Method(
         id="offline-maps",
@@ -316,6 +435,9 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("address", "record_type", "detail", "source", "notes"),
         tools=(),
         related=("satellite-imagery", "web-archive"),
+        tool_references=(
+            toolkit_tool("Osint Tools Map", "osint-tools-map", "country-specific cadastral/property registry pointers"),
+        ),
     ),
     Method(
         id="weather-history",
@@ -349,6 +471,10 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("location", "datetime_window", "conditions", "source", "notes"),
         tools=(),
         related=("satellite-imagery",),
+        tool_references=(
+            toolkit_tool("SunCalc", "suncalc", "exact sun position and shadow direction for a date and place"),
+            toolkit_tool("RAMMB SLIDER", "rammb-slider", "near-real-time global weather satellite loops"),
+        ),
     ),
     Method(
         id="web-archive",
@@ -367,7 +493,10 @@ METHODS: tuple[Method, ...] = (
             "via robots.txt.",
             "Preserve what you rely on the moment you find it: submit the "
             "live URL to both archives (save handoffs) so the record "
-            "outlives the page.",
+            "outlives the page. For social-media profiles and posts — the "
+            "things that vanish fastest — an archiving browser extension "
+            "(Hunchly) or an archiver pipeline (Bellingcat's Auto Archiver) "
+            "captures the page as you viewed it, with timestamps.",
             "Quote snapshots by their exact timestamped URL — 'the page "
             "said X' is hearsay; a snapshot is a citable record.",
             "Capture the original URL, the snapshot timestamp, and the "
@@ -380,8 +509,16 @@ METHODS: tuple[Method, ...] = (
             "https://archive.ph/submit/?url={query}",
         ),
         capture_fields=("url", "snapshot_timestamp", "archive", "notes"),
-        tools=(),
+        tools=("Hunchly", "Auto Archiver", "Web Archives (browser extension)"),
         related=(),
+        tool_references=(
+            toolkit_tool("Wayback Machine", "internet-archive", "the canonical first stop; excludes robots.txt-blocked captures"),
+            toolkit_tool("Archive.today", "archive.today", "independent second archive; strong on social media"),
+            toolkit_tool("Hunchly", "hunchly", "captures pages as you browse; paid, offline store"),
+            toolkit_tool("Auto Archiver", "auto-archiver", "Bellingcat's batch archiver for posts/videos; runs locally"),
+            toolkit_tool("Web Archives", "web-archives", "one right-click to every archive at once"),
+            toolkit_category("archiving"),
+        ),
     ),
     Method(
         id="reverse-image",
@@ -396,9 +533,14 @@ METHODS: tuple[Method, ...] = (
             "Run the image through Google Lens, TinEye, and Yandex — their "
             "indexes differ enough that checking only one is a coin flip. "
             "Yandex is often strongest on faces and places, TinEye on exact "
-            "matches with earliest-found dates.",
+            "matches with earliest-found dates. RootAbout adds the Internet "
+            "Archive's own image index, which the general engines miss.",
             "Crop to the distinctive region and retry: background clutter "
             "defeats matching more often than the image being unknown.",
+            "Facial-recognition search (PimEyes, FaceCheck.ID) is a separate "
+            "legal category in many jurisdictions — check your authorization "
+            "before uploading a person's face, and note that both are paid "
+            "for useful results.",
             "Read matches by date, not by count: the earliest posting is "
             "usually closest to the source.",
             "Preserve each significant match page with web-archive "
@@ -414,6 +556,15 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("match_url", "source", "first_seen", "notes"),
         tools=(),
         related=("web-archive", "username-search"),
+        tool_references=(
+            toolkit_tool("TinEye", "tineye", "exact matches with earliest-found dates"),
+            toolkit_tool("Google Lens", "google-lens", "strongest general index"),
+            toolkit_tool("RootAbout", "rootabout", "reverse search against the Internet Archive's index"),
+            toolkit_tool("PimEyes", "pimeyes", "facial recognition — legally sensitive; paid for useful results"),
+            toolkit_tool("FaceCheck.ID", "facecheck.id", "facial recognition — same caveat as PimEyes"),
+            toolkit_tool("Search by Image", "search-by-image", "browser extension hitting several engines at once"),
+            toolkit_category("image-video"),
+        ),
     ),
     Method(
         id="image-metadata",
@@ -441,6 +592,11 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("exhibit", "finding", "notes"),
         tools=("swappy (see docs/image-annotation.md)",),
         related=("reverse-image",),
+        tool_references=(
+            toolkit_tool("ExifTool", "exiftool", "the reference EXIF reader; m3talex covers the common cases offline"),
+            toolkit_tool("Forensically", "forensically", "web-based error-level analysis; a copy leaves your drive if used online"),
+            toolkit_tool("xIFr", "xifr", "Firefox add-on for quick EXIF reads"),
+        ),
     ),
     Method(
         id="video-cctv",
@@ -469,6 +625,99 @@ METHODS: tuple[Method, ...] = (
         capture_fields=("exhibit", "observation", "timestamp_utc", "notes"),
         tools=(),
         related=(),
+        tool_references=(
+            toolkit_tool("InVID", "invid", "keyframe extraction and video verification, on copies only"),
+        ),
+    ),
+    Method(
+        id="transport-tracking",
+        name="Flight, vessel, and rail tracking",
+        tier=tiers.GREEN,
+        category="transport",
+        summary=(
+            "Place an aircraft, vessel, or route at a time: public ADS-B and "
+            "AIS tracking data, historical positions, and fleet records."
+        ),
+        steps=(
+            "Identify what you actually have: a flight number or tail "
+            "number, a vessel name or MMSI/IMO, or a route and a time "
+            "window. Trackers key off different identifiers — get the "
+            "strongest one first.",
+            "Flights: Flightradar24 and FlightAware give live and "
+            "historical positions by flight or tail number; ADS-B exchange "
+            "data (adsb.fi / adsbexchange) covers aircraft that ask the "
+            "commercial trackers to hide them. GPSJam maps GPS interference "
+            "days, which explains gaps in a track.",
+            "Vessels: MarineTraffic and VesselFinder give live and "
+            "historical AIS positions; Equasis adds ownership and safety "
+            "records (free registration). Global Fishing Watch covers "
+            "fishing-vessel effort.",
+            "Correlate a track with the case timeline (`use timeline`): a "
+            "position report is an event row like any other, with a source.",
+            "Capture the mode, the identifier you tracked, the observation "
+            "time (UTC), the position or route, and the source — a track "
+            "without its observation time is an anecdote.",
+        ),
+        handoffs=(
+            "https://www.flightradar24.com/{query}",
+            "https://www.flightaware.com/live/flight/{query}",
+            "https://www.marinetraffic.com/en/ais/index/search/all?keyword={query}",
+            "https://www.vesselfinder.com/?search={query}",
+        ),
+        capture_fields=("mode", "identifier", "observation_time_utc", "position", "source", "notes"),
+        tools=(),
+        related=("maps-geolocation", "web-archive"),
+        tool_references=(
+            toolkit_tool("Flightradar24", "flightradar24", "historical data beyond 7 days needs a paid tier"),
+            toolkit_tool("FlightAware", "flightaware", "strong on US flight history; free"),
+            toolkit_tool("GPSJam", "gpsjam", "GPS interference maps — explains track gaps"),
+            toolkit_tool("MarineTraffic", "marinetraffic", "AIS positions; history depth varies by tier"),
+            toolkit_tool("VesselFinder", "vesselfinder", "free AIS live positions"),
+            toolkit_tool("Equasis", "equasis", "vessel ownership/safety records; free registration"),
+            toolkit_tool("Global Fishing Watch", "global-fishing-watch-map", "fishing-vessel activity from AIS + satellite"),
+            toolkit_category("transport"),
+        ),
+    ),
+    Method(
+        id="vehicle-records",
+        name="Vehicle and plate records",
+        tier=tiers.YELLOW,
+        category="transport",
+        summary=(
+            "Check a plate or VIN against lawful public sources: theft and "
+            "salvage records, VIN decoding, plate-format reference."
+        ),
+        steps=(
+            "Decode the VIN first (NHTSA vPIC handoff): make, model, year, "
+            "plant, and engine — free, authoritative, and a fast way to "
+            "catch a cloned or swapped plate when the decode contradicts "
+            "the observed vehicle.",
+            "In the US, NICB VINCheck reports theft and total-loss/salvage "
+            "records from insurers — lawful, free, and designed for the "
+            "public.",
+            "Plate lookups that name the registered *owner* are restricted "
+            "nearly everywhere (DPPA in the US, equivalents elsewhere): use "
+            "only channels your authorization covers, and record the lawful "
+            "basis in the notes.",
+            "Confirm the plate format is real for its jurisdiction (License "
+            "Plate Maps reference) — a malformed plate is itself a finding.",
+            "Tie the result to the transportation profile: `vehicle set "
+            "<id> ...` in the console, or `chr0nix case entity set vehicle`, "
+            "keeps the registry current with what the records showed.",
+            "Capture plate, VIN, jurisdiction, the record type, the detail, "
+            "and the source for each fact.",
+        ),
+        handoffs=(
+            "https://vpic.nhtsa.dot.gov/decoder/Decoder?VIN={query}",
+            "https://www.nicb.org/vincheck",
+        ),
+        capture_fields=("plate", "vin", "jurisdiction", "record_type", "detail", "source", "notes"),
+        tools=(),
+        related=("transport-tracking",),
+        tool_references=(
+            toolkit_tool("License Plate Maps", "license-plate-maps", "plate formats by country — validity checks, not owner data"),
+            toolkit_category("transport"),
+        ),
     ),
 )
 
@@ -491,6 +740,41 @@ def is_yellow(method_id: str) -> bool:
     same malformed-invocation convention as the casework tiers.
     """
     return any(method.id == method_id and method.tier == tiers.YELLOW for method in METHODS)
+
+
+def parse_capture_pairs(method: Method, tokens: list[str]) -> list[tuple[str, str]]:
+    """Validate ``field=value`` tokens against a method's capture vocabulary.
+
+    Shared by the console's ``capture`` command and the guide CLI so a
+    structured finding is validated identically no matter which front end
+    recorded it. At least one pair is required; unknown fields fail with
+    the method's full vocabulary listed.
+    """
+    if not tokens:
+        raise SuiteError(
+            f"capture needs at least one <field>=<value> pair for {method.id} "
+            f"(fields: {', '.join(method.capture_fields)})"
+        )
+    pairs: list[tuple[str, str]] = []
+    for token in tokens:
+        field, separator, value = token.partition("=")
+        if not separator:
+            raise SuiteError(
+                f"expected <field>=<value>, got {token!r} "
+                f"(fields: {', '.join(method.capture_fields)})"
+            )
+        if field not in method.capture_fields:
+            raise SuiteError(
+                f"unknown field {field!r} for {method.id}; "
+                f"capture fields: {', '.join(method.capture_fields)}"
+            )
+        pairs.append((field, value.strip()))
+    return pairs
+
+
+def capture_detail(method: Method, pairs: list[tuple[str, str]]) -> str:
+    """The one-line event detail for a capture: ``method: field=value; ...``."""
+    return f"{method.id}: " + "; ".join(f"{field}={value}" for field, value in pairs)
 
 
 def render_listing() -> str:
@@ -539,6 +823,16 @@ def render_hint(method: Method, query: str | None) -> str:
             "External tools referenced (by name only — the suite never runs them): "
             + ", ".join(method.tools)
         )
+    if method.tool_references:
+        lines.append("")
+        lines.append(
+            "Toolkit references (Bellingcat's Online Investigation Toolkit — "
+            "printed for your browser, never opened by the suite):"
+        )
+        for reference in method.tool_references:
+            lines.append(f"  {reference.name} — {reference.url}")
+            if reference.caveat:
+                lines.append(f"    caveat: {reference.caveat}")
     lines.append("")
     lines.append("Capture fields: " + ", ".join(method.capture_fields))
     lines.append(

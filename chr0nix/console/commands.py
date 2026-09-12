@@ -11,23 +11,47 @@ The grammar is deliberately tiny, in the operator-console tradition:
 - ``help [command]``           — usage for everything available now
 - ``show tools|options|attestations`` — registered tools / session
   state / the workspace attestation log
-- ``use <tool>``               — make a tool active
+- ``use <tool>``               — make a tool active (bare: list tools)
 - ``set <option> <value>``     — evidence / output / manifest / log / actor
+  (bare ``set`` shows options; ``set <option>`` shows one value)
 - ``unset <option>``           — clear an option
 - ``run``                      — the active tool's primary action
 - ``ack <reason...>``          — confirm a pending YELLOW-tier action
+- ``clear``                    — wipe the screen (``/clear`` works too)
 - ``exit`` / ``quit``          — leave the console
+
+The dispatch is deliberately forgiving, in the sliver tradition:
+
+- A bare tool name selects the tool: ``casework`` is ``use casework``.
+- A tool name as the first word runs the rest of the line in that
+  tool's context: ``casework init /cases/2026`` is ``use casework``
+  plus ``init /cases/2026``.
+- Any tool command runs from anywhere: typing ``init /cases/2026``
+  while cust0dia is active (or none is) switches the active tool to
+  casework and runs it. The switch is always echoed in the output —
+  convenient, but never silent.
 
 Active tools add their own commands on top (cust0dia adds
 ``show exhibits``, ``show log``, and ``log``; timeline adds ``build``
 and ``schema``; h4ndl3 adds ``worksheet``, ``add``, ``validate``, and
 ``report``; m3talex adds ``scan``; casework adds ``init``, ``new``,
 ``cases``, ``open``, ``status``, ``categorize``, ``classify``,
-``link``, ``links``, ``event``, ``synopsis``, and ``show case``;
-guide adds ``methods``, ``hint``, and ``capture``).
+``link``, ``links``, the entity profile commands (``subject
+add|edit|show|set``, ``subjects``, and the ``vehicle`` counterparts),
+``event``, ``synopsis``, ``show case``, and ``export``; guide adds
+``methods``, ``hint``, and ``capture``).
 Parsing uses :func:`shlex.split`: quoted arguments work, and there is
 no shell — an evidence console has no business evaluating command
 lines.
+
+**Guided forms.** ``subject add`` / ``vehicle add`` (and the ``edit``
+variants) install a :class:`chr0nix.console.forms.GuidedForm` on the
+session; while a form is active every typed line is form input (Enter
+keeps/skips, ``done`` saves, ``cancel`` aborts), never parsed as a
+command. Long-form fields raise
+:class:`chr0nix.console.forms.EditorHandoff` out of dispatch — the UI
+suspends curses, runs the terminal editor
+(:mod:`chr0nix.core.editor`), and resumes the form with the result.
 
 **Tier check.** Before any tool command (or a tool's ``run``)
 executes, its legal-risk tier is resolved (see :mod:`chr0nix.tiers`).
@@ -44,8 +68,9 @@ import shlex
 
 from .. import tiers
 from ..errors import SuiteError
-from .session import OPTION_NAMES, SessionContext
 from . import tools
+from .forms import EditorHandoff, GuidedForm
+from .session import OPTION_NAMES, SessionContext
 
 
 class ConsoleExit(Exception):
@@ -57,17 +82,28 @@ class ConsoleExit(Exception):
     """
 
 
+class ConsoleClear(Exception):
+    """Raised by ``clear``; the UI catches it and wipes the scrollback.
+
+    Same rationale as :class:`ConsoleExit`: the scrollback belongs to
+    the UI, so the command layer signals rather than returning text.
+    """
+
+
 #: ``(name, usage, summary)`` for the core commands, in help order.
 _CORE_HELP: tuple[tuple[str, str, str], ...] = (
     ("help", "help [command]", "show this help, or one command's usage"),
     ("show", "show tools|options|attestations",
      "list registered tools / show session state / print the attestation log"),
-    ("use", "use <tool>", "make a tool active"),
-    ("set", "set <option> <value>", f"set a session option ({', '.join(OPTION_NAMES)})"),
+    ("use", "use <tool>", "make a tool active (bare: list tools; "
+     "a bare tool name works too)"),
+    ("set", "set <option> <value>", f"set a session option ({', '.join(OPTION_NAMES)}; "
+     "bare `set` shows options)"),
     ("unset", "unset <option>", "clear a session option"),
     ("run", "run", "the active tool's primary action"),
     ("ack", "ack <reason...>", "confirm the pending YELLOW action "
      "(the reason is recorded in the attestation log)"),
+    ("clear", "clear", "wipe the screen (alias: /clear)"),
     ("exit", "exit", "leave the console (alias: quit)"),
 )
 
@@ -80,21 +116,23 @@ def _tier_marker(spec: tiers.TierSpec) -> str:
 def _cmd_help(session: SessionContext, args: list[str]) -> str:
     if args:
         wanted = " ".join(args)
-        for name, usage, summary in _available_commands(session):
+        for name, usage, summary in _available_commands():
             if name == wanted:
                 return f"{usage:<40}{summary}"
         raise SuiteError(f"no such command {wanted!r} (try: help)")
     lines = ["core commands:"]
     lines += [f"  {usage:<38}{summary}" for _, usage, summary in _core_commands()]
-    tool = _active_tool(session)
-    if tool is not None:
-        lines.append(f"{tool.name} commands:")
+    for tool in tools.REGISTRY:
+        marker = " (active)" if tool.name == session.active_tool else ""
+        lines.append(f"{tool.name} commands:{marker}")
         lines += [
             f"  {command.usage:<38}{command.summary}{_tier_marker(command.tier)}"
             for command in tool.commands
         ]
-    else:
-        lines.append("no active tool — `use <tool>` first (see: show tools)")
+    lines.append(
+        "every command above runs from anywhere — typing another tool's "
+        "command switches the active tool"
+    )
     return "\n".join(lines)
 
 
@@ -146,6 +184,8 @@ def _tool_tier_marker(tool: "tools.Tool") -> str:
 
 
 def _cmd_use(session: SessionContext, args: list[str]) -> str:
+    if not args:
+        return _cmd_show(session, ["tools"])
     if len(args) != 1:
         raise SuiteError("usage: use <tool>")
     tool = tools.lookup_tool(args[0])
@@ -154,8 +194,15 @@ def _cmd_use(session: SessionContext, args: list[str]) -> str:
 
 
 def _cmd_set(session: SessionContext, args: list[str]) -> str:
-    if len(args) < 2:
-        raise SuiteError(f"usage: set <option> <value> (options: {', '.join(OPTION_NAMES)})")
+    if not args:
+        return _cmd_show(session, ["options"])
+    if len(args) == 1:
+        for name, value in session.describe_options():
+            if name == args[0]:
+                return f"{name} = {value}"
+        raise SuiteError(
+            f"unknown option {args[0]!r}; expected one of: {', '.join(OPTION_NAMES)}"
+        )
     return session.set_option(args[0], " ".join(args[1:]))
 
 
@@ -239,6 +286,10 @@ def _cmd_exit(session: SessionContext, args: list[str]) -> str:
     raise ConsoleExit
 
 
+def _cmd_clear(session: SessionContext, args: list[str]) -> str:
+    raise ConsoleClear
+
+
 def _core_commands() -> list[tuple[str, str, str]]:
     return list(_CORE_HELP)
 
@@ -251,6 +302,7 @@ _CORE_HANDLERS = {
     "set": _cmd_set,
     "unset": _cmd_unset,
     "ack": _cmd_ack,
+    "clear": _cmd_clear,
     "exit": _cmd_exit,
     "quit": _cmd_exit,
 }
@@ -262,11 +314,18 @@ def _active_tool(session: SessionContext) -> tools.Tool | None:
     return tools.lookup_tool(session.active_tool)
 
 
-def _available_commands(session: SessionContext) -> list[tuple[str, str, str]]:
-    """All commands currently dispatchable: core plus the active tool's."""
+def _tool_named(name: str) -> tools.Tool | None:
+    """The registered tool called ``name``, or None — no error."""
+    for tool in tools.REGISTRY:
+        if tool.name == name:
+            return tool
+    return None
+
+
+def _available_commands() -> list[tuple[str, str, str]]:
+    """All dispatchable commands: core plus every registered tool's."""
     available = _core_commands()
-    tool = _active_tool(session)
-    if tool is not None:
+    for tool in tools.REGISTRY:
         available += [(c.name, c.usage, c.summary) for c in tool.commands]
     return available
 
@@ -297,6 +356,14 @@ def _dispatch(session: SessionContext, line: str, *, attested: bool) -> str:
     pending action it just confirmed; every other entry point goes
     through the tier check.
     """
+    # An active guided form owns every typed line until it finishes or
+    # is cancelled — form input is never parsed as commands, and an
+    # empty line is the form's keep/skip, so this precedes even the
+    # empty-line no-op. Editor handoffs (a long-form field's `:edit`)
+    # propagate to the UI, which resumes the form with the edited text.
+    if session.form is not None:
+        return _feed_form(session, line)
+
     stripped = line.strip()
     if not stripped:
         return ""
@@ -310,47 +377,110 @@ def _dispatch(session: SessionContext, line: str, *, attested: bool) -> str:
 
     head, rest = tokens[0], tokens[1:]
 
+    # Slash-prefixed forms (`/clear`, `/exit`) are accepted: console
+    # users type them from muscle memory, and tolerating them costs nil.
+    if head.startswith("/") and len(head) > 1:
+        head = head[1:]
+
     # Any command other than `ack` voids a pending YELLOW action: an
     # ack must immediately follow its challenge, so a stale challenge
     # can never be confirmed by accident later.
     if head != "ack":
         session.pending_action = None
 
+    notice = ""
+    tool = _active_tool(session)
+
+    # A tool name as the first word selects that tool: bare (`casework`)
+    # is `use casework`; with trailing words the rest of the line runs
+    # in that tool's context (`casework init /cases/2026`).
+    named = _tool_named(head)
+    if named is not None:
+        if session.active_tool != named.name:
+            notice = f"active tool -> {named.name}"
+        session.active_tool = named.name
+        tool = named
+        if not rest:
+            return f"active tool -> {named.name}"
+        head, rest = rest[0], rest[1:]
+        tokens = [head, *rest]
+
     # Longest-prefix match so tool commands like "show exhibits" win
     # over the core "show".
-    tool = _active_tool(session)
     if tool is not None and len(tokens) >= 2:
         two_words = " ".join(tokens[:2])
         for command in tool.commands:
             if command.name == two_words:
-                return _run_tool_command(
+                return _with_notice(notice, _run_tool_command(
                     session, tool, command, tokens[2:], stripped, attested
-                )
+                ))
 
     if tool is not None:
         for command in tool.commands:
             if command.name == head:
-                return _run_tool_command(session, tool, command, rest, stripped, attested)
+                return _with_notice(
+                    notice, _run_tool_command(session, tool, command, rest, stripped, attested)
+                )
     if head == "run":
-        return _cmd_run(session, rest, attested=attested, raw_line=stripped)
+        return _with_notice(notice, _cmd_run(session, rest, attested=attested, raw_line=stripped))
     handler = _CORE_HANDLERS.get(head)
-    if handler is None:
-        # Affinity: if another registered tool owns this command, say
-        # so — "unknown command" is a dead end, while "'new' is a
-        # casework command — use casework first" is a signpost.
-        for candidate in tools.REGISTRY:
-            if candidate is tool:
-                continue
-            for command in candidate.commands:
-                if command.name == head or (
-                    len(tokens) >= 2 and command.name == " ".join(tokens[:2])
-                ):
-                    raise SuiteError(
-                        f"{command.name!r} is a {candidate.name} command — "
-                        f"`use {candidate.name}` first"
-                    )
-        raise SuiteError(f"unknown command {head!r} (try: help)")
-    return handler(session, rest)
+    if handler is not None:
+        return _with_notice(notice, handler(session, rest))
+
+    # Forgiving dispatch: any registered tool's command runs from
+    # anywhere — the console switches the active tool to the command's
+    # owner and says so. Two-word commands are matched before one-word
+    # ones across the whole registry, so the longest name always wins.
+    two_words = " ".join(tokens[:2]) if len(tokens) >= 2 else None
+    for candidate in tools.REGISTRY:
+        if candidate is tool:
+            continue
+        for command in candidate.commands:
+            if two_words is not None and command.name == two_words:
+                session.active_tool = candidate.name
+                output = _run_tool_command(
+                    session, candidate, command, tokens[2:], stripped, attested
+                )
+                return f"active tool -> {candidate.name}\n{output}"
+    for candidate in tools.REGISTRY:
+        if candidate is tool:
+            continue
+        for command in candidate.commands:
+            if command.name == head:
+                session.active_tool = candidate.name
+                output = _run_tool_command(session, candidate, command, rest, stripped, attested)
+                return f"active tool -> {candidate.name}\n{output}"
+    raise SuiteError(f"unknown command {head!r} (try: help)")
+
+
+def _with_notice(notice: str, output: str) -> str:
+    """Prepend an active-tool switch announcement to a command's output."""
+    if not notice:
+        return output
+    return f"{notice}\n{output}" if output else notice
+
+
+def _feed_form(session: SessionContext, line: str) -> str:
+    """Route one typed line into the active guided form.
+
+    The form ending (saved or cancelled) clears the session attribute;
+    a commit-time failure (e.g. a duplicate id slipping past the entry
+    validator) also ends the form, with the error surfaced — a half-open
+    form must never swallow later commands. :class:`EditorHandoff`
+    propagates with the form left active; the UI's ``resume`` call
+    carries the form on.
+    """
+    form = session.form
+    try:
+        output, done = form.feed(line)
+    except EditorHandoff:
+        raise
+    except SuiteError:
+        session.form = None
+        raise
+    if done:
+        session.form = None
+    return output
 
 
 def _run_tool_command(
@@ -370,8 +500,9 @@ def _run_tool_command(
 def complete(session: SessionContext, line: str) -> list[str]:
     """Completion candidates for ``line`` — the UI's tab key.
 
-    Completes command names at the start of a line, option names after
-    ``set``/``unset``, and tool names after ``use``. Exhibit paths are
+    Completes command names and tool names at the start of a line,
+    option names after ``set``/``unset``, and tool names after ``use``.
+    Exhibit paths are
     deliberately not completed: completing them would mean reading the
     manifest on every keystroke, and a mistyped exhibit fails loudly at
     ``log`` time anyway.
@@ -380,9 +511,10 @@ def complete(session: SessionContext, line: str) -> list[str]:
     ends_with_space = line.endswith(" ")
     if not tokens or (len(tokens) == 1 and not ends_with_space):
         prefix = tokens[0] if tokens else ""
-        return sorted(
-            name for name, _, _ in _available_commands(session) if name.startswith(prefix)
-        )
+        names = [name for name, _, _ in _available_commands()]
+        # Tool names complete too: a bare tool name selects the tool.
+        names += [tool.name for tool in tools.REGISTRY]
+        return sorted(name for name in names if name.startswith(prefix))
     head = tokens[0]
     prefix = "" if ends_with_space else tokens[-1]
     if head in ("set", "unset") and (len(tokens) == 1 or (len(tokens) == 2 and not ends_with_space)):

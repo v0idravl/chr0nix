@@ -94,6 +94,16 @@ def validate_header(fieldnames: list[str] | None, source: str) -> list[str]:
     if fieldnames is None:
         raise Chr0nixError(f"{source}: file is empty; expected a header row")
     normalized = [(f or "").strip() for f in fieldnames]
+    # Duplicate column names would silently shadow each other in
+    # DictReader (the last column wins) — which column a value came from
+    # must never be ambiguous in an evidence export, so reject outright.
+    duplicates = sorted({c for c in normalized if normalized.count(c) > 1})
+    if duplicates:
+        rendered = ", ".join(repr(c) or "(empty)" for c in duplicates)
+        raise Chr0nixError(
+            f"{source}: duplicate column name(s) in the header: {rendered}; "
+            "rename or remove the repeated columns in the source export"
+        )
     missing = [c for c in REQUIRED_COLUMNS if c not in normalized]
     if missing:
         raise Chr0nixError(

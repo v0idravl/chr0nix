@@ -79,5 +79,56 @@ class VerifyTreeTests(unittest.TestCase):
         self.assertIn("actual", changed.detail)
 
 
+class ManifestExclusionTests(unittest.TestCase):
+    """The self-sealing-bundle exemption (chr0nix case export).
+
+    A manifest inside the tree it describes cannot list itself; exactly
+    it — and its manifest.csv/manifest.json sibling — are exempt from
+    the EXTRA sweep. Anything else unexpected still fails.
+    """
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name).resolve() / "bundle"
+        self.root.mkdir()
+
+    def seal(self):
+        """Manifest the tree, then write the manifest pair inside it."""
+        entries = manifest.build_manifest(self.root)
+        manifest.write_csv(entries, self.root / "manifest.csv")
+        manifest.write_json(entries, self.root, self.root / "manifest.json")
+        return manifest.read_manifest(self.root / "manifest.json")[1]
+
+    def test_self_sealed_tree_verifies_clean(self):
+        (self.root / "CASE-REPORT.md").write_text("# report\n", encoding="utf-8")
+        entries = self.seal()
+        exclusions = verify.manifest_exclusions(self.root / "manifest.json", self.root)
+        self.assertEqual(set(exclusions), {"manifest.csv", "manifest.json"})
+        results = verify.verify_tree(self.root, entries, exclude=exclusions)
+        self.assertTrue(verify.passed(results))
+
+    def test_exclusion_does_not_hide_planted_files(self):
+        (self.root / "report.txt").write_text("x\n", encoding="utf-8")
+        entries = self.seal()
+        (self.root / "planted.txt").write_text("sneaky\n", encoding="utf-8")
+        exclusions = verify.manifest_exclusions(self.root / "manifest.csv", self.root)
+        results = verify.verify_tree(self.root, entries, exclude=exclusions)
+        self.assertFalse(verify.passed(results))
+        statuses = {r.relative_path: r.status for r in results}
+        self.assertEqual(statuses["planted.txt"], "EXTRA")
+
+    def test_manifest_outside_tree_gets_no_exemptions(self):
+        (self.root / "exhibit.txt").write_text("x\n", encoding="utf-8")
+        entries = manifest.build_manifest(self.root)
+        outside = Path(self._tmp.name).resolve() / "manifest.json"
+        manifest.write_json(entries, self.root, outside)
+        self.assertEqual(verify.manifest_exclusions(outside, self.root), ())
+        # And an unmanifested manifest.csv inside the tree is still EXTRA.
+        manifest.write_csv(entries, self.root / "manifest.csv")
+        results = verify.verify_tree(self.root, entries)
+        self.assertFalse(verify.passed(results))
+
+
 if __name__ == "__main__":
     unittest.main()

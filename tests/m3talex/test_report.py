@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import m3talex
 from m3talex.analyze import analyze_image, iter_images
 from m3talex.integrity import MANIFEST_FIELDS, manifest_entry, utc_now_iso
 from m3talex.report import (
@@ -23,7 +24,7 @@ from m3talex.report import (
     write_batch_outputs,
     write_json_report,
 )
-from m3talex.samplegen import _ASCII as ASCII, build_jpeg, build_png
+from tests.m3talex.samplegen import _ASCII as ASCII, build_jpeg, build_png
 
 
 class AnalyzeTestCase(unittest.TestCase):
@@ -130,7 +131,7 @@ class ReportTests(AnalyzeTestCase):
         write_batch_outputs(self.records, entries, self.outdir, self.root)
         document = json.loads((self.outdir / MANIFEST_JSON_NAME).read_text())
         self.assertEqual(set(document), {"tool", "generated_at_utc", "root", "entries"})
-        self.assertEqual(document["tool"], "m3talex")
+        self.assertEqual(document["tool"], f"m3talex {m3talex.__version__}")
         self.assertEqual(len(document["entries"]), 3)
         for entry in document["entries"]:
             self.assertEqual(set(entry), set(MANIFEST_FIELDS))

@@ -21,7 +21,7 @@ from tempfile import TemporaryDirectory
 
 from cust0dia import Cust0diaError
 
-from chr0nix.console.commands import ConsoleExit, dispatch
+from chr0nix.console.commands import ConsoleClear, ConsoleExit, complete, dispatch
 from chr0nix.console.session import SessionContext
 from chr0nix.errors import SuiteError
 
@@ -208,6 +208,37 @@ class ConsoleTests(unittest.TestCase):
             with self.subTest(word=word):
                 with self.assertRaises(ConsoleExit):
                     dispatch(self.session, word)
+
+    def test_clear_and_slash_clear_raise_console_clear(self):
+        for word in ("clear", "/clear"):
+            with self.subTest(word=word):
+                with self.assertRaises(ConsoleClear):
+                    dispatch(self.session, word)
+
+    def test_bare_set_shows_options(self):
+        output = dispatch(self.session, "set")
+        self.assertIn("(unset)", output)
+
+    def test_set_with_one_argument_shows_the_value(self):
+        dispatch(self.session, "set actor A. Rivera")
+        output = dispatch(self.session, "set actor")
+        self.assertEqual(output, "actor = A. Rivera")
+
+    def test_bare_use_lists_tools(self):
+        output = dispatch(self.session, "use")
+        self.assertIn("cust0dia", output)
+        self.assertIn("casework", output)
+
+    def test_help_lists_every_tool_commands(self):
+        output = dispatch(self.session, "help")
+        self.assertIn("casework commands:", output)
+        self.assertIn("log <exhibit> <ACTION>", output)
+
+    def test_completion_offers_tool_names_and_all_commands(self):
+        candidates = complete(self.session, "cas")
+        self.assertIn("casework", candidates)
+        candidates = complete(self.session, "categ")
+        self.assertIn("categorize", candidates)
 
     def test_help_lists_core_and_tool_commands(self):
         output = dispatch(self.session, "help")

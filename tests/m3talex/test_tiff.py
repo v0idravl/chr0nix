@@ -1,6 +1,6 @@
 """Tests for the TIFF/EXIF parser (m3talex.tiff).
 
-Fixtures are built with m3talex.samplegen.build_tiff, so the parser is
+Fixtures are built with tests.m3talex.samplegen.build_tiff, so the parser is
 tested against byte structures whose contents are known by construction.
 """
 
@@ -8,7 +8,7 @@ import struct
 import unittest
 
 from m3talex.errors import FormatError
-from m3talex.samplegen import _ASCII as ASCII, _SHORT as SHORT, build_tiff
+from tests.m3talex.samplegen import _ASCII as ASCII, _SHORT as SHORT, build_tiff
 from m3talex.tiff import parse_tiff
 
 IFD0 = [

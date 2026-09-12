@@ -33,7 +33,7 @@ import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from cust0dia import timeutil
+from chr0nix.core import timeutil
 
 from . import CaseworkError
 from .workspace import (
@@ -258,6 +258,49 @@ def attach_taxonomy(workspace: Path, case_id: str, path: str) -> tuple[Case, boo
     )
     save_case(workspace, updated)
     return updated, True
+
+
+def render_case_table(workspace: Path) -> str:
+    """The workspace case table: id, status, category/link counts, title.
+
+    Shared by the console (``cases`` / ``run``) and the CLI (``case
+    list``) so both front ends render the same view of the same record.
+    The link count covers both directions of a direct case→case link.
+    """
+    from .entities import read_links  # local: entities imports this module
+
+    all_cases = list_cases(workspace)
+    if not all_cases:
+        return "no cases yet (use: new <case-id> <title...>)"
+    links = read_links(workspace)
+    lines = [f"{'case':<20}{'status':<11}{'cats':>5}{'links':>6}  title"]
+    for case in all_cases:
+        count = sum(
+            1
+            for link in links
+            if link.case_id == case.id
+            or (link.entity_type == "case" and link.entity_id == case.id)
+        )
+        lines.append(
+            f"{case.id:<20}{case.status:<11}{len(case.categories):>5}"
+            f"{count:>6}  {case.title}"
+        )
+    return "\n".join(lines)
+
+
+def render_status_summary(workspace: Path) -> str:
+    """The one-line status-count summary of the whole workspace."""
+    all_cases = list_cases(workspace)
+    counts = {status: 0 for status in STATUS_ORDER}
+    for case in all_cases:
+        counts[case.status] += 1
+    breakdown = ", ".join(
+        f"{counts[status]} {status}" for status in STATUS_ORDER if counts[status]
+    )
+    summary = f"workspace: {len(all_cases)} case(s)"
+    if breakdown:
+        summary += f" — {breakdown}"
+    return summary
 
 
 def append_event(

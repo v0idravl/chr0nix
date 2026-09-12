@@ -26,24 +26,23 @@ statuses (draft, pending, closed) and vehicle/case links stay GREEN.
 
 The attestation log is ``attest.csv`` at the workspace root — not
 per-case, because YELLOW actions span tools (h4ndl3 and casework so
-far). It follows :mod:`cust0dia.custody`'s append-only pattern exactly:
-a stable header validated before every append, control characters
-rejected in free-text fields (one attestation is one line; a newline in
-a field would smuggle in forged rows), and the only write ever
-performed is adding bytes at the end of the file. Columns:
-``timestamp_utc,actor,action,reason``.
+far). It follows the append-only pattern implemented once in
+:mod:`chr0nix.core.csvx`: a stable header validated before every
+append, control characters rejected in free-text fields (one
+attestation is one line; a newline in a field would smuggle in forged
+rows), and the only write ever performed is adding bytes at the end of
+the file. Columns: ``timestamp_utc,actor,action,reason``.
 
 Attestation requires a workspace: there is no other place the record
 could live that the operator deliberately chose. A YELLOW action with
 no workspace set is a clean error, never a silent skip.
 """
 
-import csv
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from cust0dia import timeutil
+from chr0nix.core import csvx, fields, timeutil
 
 from .errors import SuiteError
 
@@ -114,9 +113,7 @@ def validate_reason(reason: str) -> str:
     The same rule as the custody log's free-text fields: non-empty, and
     no control characters — one attestation is one line.
     """
-    cleaned = reason.strip()
-    if any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
-        raise SuiteError("reason must not contain control characters")
+    cleaned = fields.clean_field(reason, "reason", required=False, error=SuiteError)
     if not cleaned:
         raise SuiteError("a reason is required (usage: ack <reason...>)")
     return cleaned
@@ -127,7 +124,7 @@ def append_attestation(
 ) -> None:
     """Append one attestation row to <workspace>/attest.csv.
 
-    :func:`cust0dia.custody.append_custody_row`'s pattern: an existing
+    The shared :func:`chr0nix.core.csvx.append_row` pattern: an existing
     non-empty file's header must match exactly (we refuse to append to
     a file we did not create), free-text fields are control-character
     checked, and the write is append mode only. The reason is
@@ -136,39 +133,14 @@ def append_attestation(
     """
     row = [
         timeutil.utc_now(),
-        _clean_field(actor, "actor"),
-        _clean_field(action, "action"),
+        fields.clean_field(actor, "actor", required=True, error=SuiteError),
+        fields.clean_field(action, "action", required=True, error=SuiteError),
         validate_reason(reason),
     ]
-    path = workspace / ATTEST_FILENAME
-    needs_header = True
-    if path.exists():
-        if path.stat().st_size > 0:
-            _require_matching_header(path)
-            needs_header = False
-    with path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, lineterminator="\n")
-        if needs_header:
-            writer.writerow(ATTEST_FIELDS)
-        writer.writerow(row)
-
-
-def _clean_field(value: str, field_name: str) -> str:
-    """Strip and control-character-check one attestation field."""
-    cleaned = value.strip()
-    if any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
-        raise SuiteError(f"{field_name} must not contain control characters")
-    if not cleaned:
-        raise SuiteError(f"{field_name} must not be empty")
-    return cleaned
-
-
-def _require_matching_header(path: Path) -> None:
-    """Refuse to append unless the existing log has exactly our header."""
-    with path.open("r", newline="", encoding="utf-8") as handle:
-        first_line = handle.readline().rstrip("\n")
-    if first_line != ",".join(ATTEST_FIELDS):
-        raise SuiteError(
-            f"refusing to append to {path}: its header does not match a "
-            "chr0nix attestation log (is this the right file?)"
-        )
+    csvx.append_row(
+        workspace / ATTEST_FILENAME,
+        ATTEST_FIELDS,
+        row,
+        what="a chr0nix attestation log",
+        error=SuiteError,
+    )

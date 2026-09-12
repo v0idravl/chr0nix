@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Regenerate the example images in examples/images/ deterministically.
+"""Regenerate the example images in examples/m3talex/images/ deterministically.
 
 Every demo command in the README runs against these files. They are built
-byte-by-byte by :mod:`m3talex.samplegen` — no binary blobs, no mystery
+byte-by-byte by :mod:`tests.m3talex.samplegen` — no binary blobs, no mystery
 provenance. Re-running this script reproduces identical files.
 
-Run from the repo root:  python examples/make_examples.py
+Run from anywhere:  python examples/m3talex/make_examples.py
 """
 
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# The builders live with the test suite (they ship no runtime purpose), so
+# the repo root must be importable whichever directory this runs from.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from m3talex.samplegen import _ASCII as ASCII, build_jpeg, build_png
+from tests.m3talex.samplegen import _ASCII as ASCII, build_jpeg, build_png
 
 IMAGES = Path(__file__).resolve().parent / "images"
 

@@ -218,9 +218,10 @@ Exit codes:
 - Findings are phrased as observations ("consistent with …") deliberately.
   If you ever see this tool's output quoted as a verdict, that is a misuse
   of the report.
-- `examples/make_examples.py` regenerates the demo images deterministically;
-  the same builder module (`m3talex.samplegen`) builds the test fixtures,
-  so every binary the tests parse is knowable by construction.
+- `examples/m3talex/make_examples.py` regenerates the demo images
+  deterministically; the same builder module (`tests/m3talex/samplegen.py`)
+  builds the test fixtures, so every binary the tests parse is knowable by
+  construction.
 - `m3talex-output/`, `demo-out/`, and `out/` are git-ignored; reports are
   regenerated artifacts, not source.
 - m3talex is intended for lawful, authorized investigative documentation

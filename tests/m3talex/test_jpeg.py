@@ -5,7 +5,7 @@ import unittest
 
 from m3talex.errors import FormatError
 from m3talex.jpeg import parse_jpeg
-from m3talex.samplegen import _ASCII as ASCII, build_jpeg
+from tests.m3talex.samplegen import _ASCII as ASCII, build_jpeg
 
 
 class JpegParseTests(unittest.TestCase):

@@ -70,6 +70,7 @@ def parse_png(data: bytes) -> PngInfo:
 
     info = PngInfo()
     position = len(_PNG_SIGNATURE)
+    saw_iend = False
     while position + 8 <= len(data):
         (length,) = struct.unpack_from(">I", data, position)
         chunk_type = data[position + 4 : position + 8]
@@ -95,7 +96,13 @@ def parse_png(data: bytes) -> PngInfo:
         elif type_name in _TEXT_CHUNK_TYPES:
             _parse_text_chunk(info, type_name, payload)
         if type_name == "IEND":
+            saw_iend = True
             break
+    if not saw_iend and not info.warnings:
+        # The chunk table ran out before the mandatory end marker — a
+        # truncated or hand-edited file. The decoded metadata still
+        # stands; the missing terminator is itself an observation.
+        info.warnings.append("no IEND chunk reached; file may be truncated")
     return info
 
 

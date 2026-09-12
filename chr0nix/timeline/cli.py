@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, manifest, normalize, render, schema, timeline
+from ..core.safety import is_within
 from .errors import Chr0nixError
 from .schema import SourceSpec
 from .timeutil import utcnow
@@ -102,13 +103,13 @@ def _check_output_location(out_dir: Path, input_paths: list[Path]) -> None:
     for input_path in input_paths:
         resolved = input_path.resolve()
         evidence_dir = resolved.parent
-        if out == evidence_dir or out.is_relative_to(evidence_dir):
+        if is_within(out, evidence_dir):
             raise Chr0nixError(
                 f"refusing to write outputs into evidence directory "
                 f"{evidence_dir} (source of {resolved.name}); choose a "
                 "separate output directory"
             )
-        if resolved.is_relative_to(out):
+        if is_within(resolved, out):
             raise Chr0nixError(
                 f"output directory {out} contains input file {resolved}; "
                 "outputs and evidence must stay separate"

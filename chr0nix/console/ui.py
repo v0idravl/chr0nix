@@ -25,8 +25,10 @@ dotfiles would be working against its own purpose.
 import curses
 
 from .. import __version__
+from ..core import editor as core_editor
 from ..errors import SuiteError, user_facing_errors
-from .commands import ConsoleExit, complete, dispatch
+from .commands import ConsoleClear, ConsoleExit, complete, dispatch
+from .forms import EditorHandoff
 from .session import SessionContext
 
 #: Smallest terminal the layout survives: narrower or shorter than
@@ -38,7 +40,8 @@ MIN_LINES = 20
 _WELCOME = (
     f"chr0nix console {__version__} — the investigative-documentation suite\n"
     "type `help` for commands; `show tools` to see the suite; `exit` to leave\n"
-    "quickstart: use casework · init <workspace-dir> · set actor <name> · new <case-id> <title>"
+    "quickstart: init <workspace-dir> · set actor <name> · new <case-id> <title>\n"
+    "tool commands run from anywhere — `casework`, `casework init …`, or just `init …` all work"
 )
 
 #: Color pair IDs, assigned in ``_init_colors``. Pair 0 is curses'
@@ -201,6 +204,31 @@ class _Editor:
             self.cursor = len(self.buffer)
 
 
+def _editor_round_trip(stdscr, handoff: EditorHandoff) -> tuple[str | None, str | None]:
+    """Run the terminal editor for one handoff, curses suspended.
+
+    ``def_prog_mode``/``endwin`` before, ``reset_prog_mode``/refresh
+    after — the idiomatic suspend/resume, so the editor owns the whole
+    terminal and the console returns exactly as it was. Returns
+    ``(text, error)``: ``text`` is None when the edit was aborted, and
+    ``error`` carries the one-line failure (no editor configured,
+    spawn failure) for the scrollback.
+    """
+    curses.def_prog_mode()
+    curses.endwin()
+    try:
+        return core_editor.edit_text(
+            initial=handoff.initial_text,
+            instructions=handoff.instructions,
+            what=handoff.label,
+        ), None
+    except user_facing_errors() as exc:
+        return None, str(exc)
+    finally:
+        curses.reset_prog_mode()
+        stdscr.refresh()
+
+
 def run_console() -> None:
     """Enter the console. Returns when the user exits.
 
@@ -277,6 +305,25 @@ def _main_loop(stdscr, session: SessionContext) -> None:
                 output = dispatch(session, line)
             except ConsoleExit:
                 return
+            except ConsoleClear:
+                scrollback.clear()
+                continue
+            except EditorHandoff as handoff:
+                # A form field (or statement/event `:edit`) wants the
+                # terminal editor: suspend curses, compose, resume.
+                text, error = _editor_round_trip(stdscr, handoff)
+                if error is not None:
+                    emit(f"chr0nix: error: {error}", _STATUS_COLORS.get("error", 0))
+                try:
+                    handoff_output, form_done = handoff.resume(text)
+                except user_facing_errors() as exc:
+                    session.form = None
+                    emit(f"chr0nix: error: {exc}", _STATUS_COLORS.get("error", 0))
+                else:
+                    if form_done:
+                        session.form = None
+                    for out_line in handoff_output.split("\n"):
+                        emit(out_line, _line_attr(out_line))
             except user_facing_errors() as exc:
                 # The shared tuple covers the shell's own validation
                 # (SuiteError) and every module package's error types —

@@ -1,40 +1,38 @@
 """Shared utilities: UTC timestamps and output-path safety.
 
-Two concerns live here because every module needs them and neither
-deserves a module of its own:
+Re-export shim over :mod:`chr0nix.core`, which now holds the single
+implementation of both concerns:
 
-- Timestamps. The entire suite standardizes on UTC ISO-8601. Centralizing
-  the "now" helper means every tool stamps time the same way, and tests
-  can inject fixed clocks for byte-deterministic output.
-- Output-path safety. h4ndl3 is read-only on inputs. These guards make
-  that promise *enforced* rather than aspirational: an output may never
-  overwrite an input file, and may never be written inside a directory
-  the tool is treating as evidence.
+- :func:`chr0nix.core.timeutil.utc_now` — the suite-standard UTC
+  ISO-8601 "now" helper. Centralizing the clock means every tool stamps
+  time the same way, and tests can inject fixed clocks for
+  byte-deterministic output.
+- :func:`chr0nix.core.safety.ensure_output_allowed` — output-path
+  safety. h4ndl3 is read-only on inputs; these guards make that promise
+  *enforced* rather than aspirational: an output may never overwrite an
+  input file, and may never be written inside a directory the tool is
+  treating as evidence.
+
+This module keeps the original h4ndl3 API working — same names, same
+signatures, same :class:`OutputPathError` type — while delegating the
+behavior to the shared core.
 """
 
 from __future__ import annotations
 
-import os
-from datetime import datetime, timezone
+from chr0nix.core import safety as _core_safety
+
+#: Current UTC time as ``YYYY-MM-DDTHH:MM:SSZ``. Seconds precision is
+#: sufficient for investigative documentation and keeps diffed outputs
+#: readable; the trailing ``Z`` makes the timezone unambiguous in every
+#: downstream consumer. Alias of :func:`chr0nix.core.timeutil.utc_now`.
+from chr0nix.core.timeutil import utc_now as utc_now_iso
+
+__all__ = ["utc_now_iso", "resolve", "OutputPathError", "ensure_output_allowed"]
 
 
-def utc_now_iso() -> str:
-    """Return the current UTC time as an ISO-8601 string with a ``Z`` suffix.
-
-    Seconds precision is sufficient for investigative documentation and
-    keeps diffed outputs readable; the trailing ``Z`` makes the timezone
-    unambiguous in every downstream consumer.
-    """
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def resolve(path: str) -> str:
-    """Return the canonical absolute path, resolving symlinks.
-
-    Guards compare *resolved* paths so that tricks like ``dir/../out``
-    or a symlink into an evidence directory cannot slip past them.
-    """
-    return os.path.realpath(path)
+#: Canonical absolute path, resolving symlinks (re-export).
+resolve = _core_safety.resolve
 
 
 class OutputPathError(ValueError):
@@ -60,23 +58,9 @@ def ensure_output_allowed(
         OutputPathError: if the resolved output path collides with any
             protected file or lies within any protected directory.
     """
-    resolved_out = resolve(out_path)
-
-    for protected in protected_files:
-        if resolved_out == resolve(protected):
-            raise OutputPathError(
-                f"refusing to overwrite input file: {out_path}"
-            )
-
-    for directory in protected_dirs:
-        resolved_dir = resolve(directory)
-        # os.path.commonpath is prefix-safe: it cannot be fooled by a
-        # sibling directory that merely shares a name prefix.
-        if (
-            resolved_out == resolved_dir
-            or os.path.commonpath((resolved_out, resolved_dir)) == resolved_dir
-        ):
-            raise OutputPathError(
-                f"refusing to write output inside input/evidence directory: "
-                f"{out_path} is inside {directory}"
-            )
+    _core_safety.ensure_output_allowed(
+        out_path,
+        protected_files=protected_files,
+        protected_dirs=protected_dirs,
+        error=OutputPathError,
+    )

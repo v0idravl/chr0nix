@@ -6,7 +6,8 @@ the module packages that do the evidentiary work:
 - :mod:`cust0dia` — recursive SHA-256 exhibit manifests and append-only
   chain-of-custody logs.
 - :mod:`chr0nix.timeline` — normalized, cross-source event timelines.
-- ``h4ndl3`` — file-handle and artifact inspection.
+- :mod:`h4ndl3` — offline-first identifier research worksheets and a
+  corroboration-gated findings store.
 - ``m3talex`` — image metadata extraction and anomaly reporting.
 
 This package is the shell: the ``chr0nix`` command-line entry point and

@@ -39,14 +39,16 @@ of those habits:
   PNG chunk parsing) and anomaly flagging: stripped metadata,
   editing-software signatures, timestamp inconsistencies,
   synthetic-media indicators.
-- **casework** *(console-native)* — case workspaces: cases with a fixed
+- **casework** — case workspaces: cases with a fixed
   status chain, investigator-editable category and taxonomy
   vocabularies, entity linking with visible associations, append-only
-  event logs, and generated case synopses.
-- **guide** *(console-native)* — an offline knowledge base of research
+  event logs, and generated case synopses. Console (`use casework`) and
+  scriptable CLI (`chr0nix case`).
+- **guide** — an offline knowledge base of research
   methods: what to check, where (browser handoffs printed, never
   opened), what's high-ROI, and a tiered capture flow that records
-  findings into the active case.
+  findings into the active case. Console (`use guide`) and scriptable
+  CLI (`chr0nix guide`).
 
 On top of the modules sits the **suite shell**: an interactive curses
 console (`python -m chr0nix console`, Linux/macOS) with a
@@ -87,7 +89,9 @@ python -m chr0nix console
 ```
 
 `out/` is disposable demo output and is git-ignored; delete it whenever
-you like. Full per-module walkthroughs live in `docs/` (see below).
+you like. **New here? Follow [docs/quickstart.md](docs/quickstart.md) —
+your first sealed case bundle in 15 minutes, using only `examples/`
+data.** Full per-module walkthroughs live in `docs/` (see below).
 
 ---
 
@@ -184,11 +188,12 @@ examples, and known limitations:
 | Module | CLI | Console tool | Docs |
 | --- | --- | --- | --- |
 | cust0dia | `python -m cust0dia manifest \| verify \| custody` | `use cust0dia` | [docs/cust0dia.md](docs/cust0dia.md) |
-| timeline | `python -m chr0nix.timeline build \| schema` | `use timeline` | `python -m chr0nix.timeline --help` |
+| timeline | `python -m chr0nix.timeline build \| schema` | `use timeline` | [docs/timeline.md](docs/timeline.md) |
 | h4ndl3 | `python -m h4ndl3` | `use h4ndl3` | [docs/h4ndl3.md](docs/h4ndl3.md) |
 | m3talex | `python -m m3talex` | `use m3talex` | [docs/m3talex.md](docs/m3talex.md) |
-| casework | console-only | `use casework` | below |
-| guide | console-only | `use guide` | below |
+| casework | `chr0nix case` | `use casework` | [docs/casework.md](docs/casework.md) |
+| guide | `chr0nix guide` | `use guide` | [docs/guide.md](docs/guide.md) |
+| console | `chr0nix console` | — | [docs/console.md](docs/console.md) |
 
 ### The suite console
 
@@ -241,7 +246,9 @@ no action) and a session actor (attestations are signed).
 ### casework — case management
 
 `use casework` manages whole investigations, compartmentalized per case
-but linkable when they share an entity. A workspace (created with
+but linkable when they share an entity. (Every command below also has a
+scriptable equivalent — `chr0nix case ...`; see
+[docs/casework.md](docs/casework.md).) A workspace (created with
 `init`) holds the configurable vocabularies and the case files:
 
 ```text
@@ -280,11 +287,14 @@ one-step bootstrap (creates the directory, points the session at it,
 initializes it); once a case is active, every case-acting command
 defaults to it — the case-id is always accepted but rarely needed, and
 the output always echoes the case acted on so a default is never
-silent. Milestone commands end with a `next:` hint, typing another
-tool's command answers with "`new` is a casework command — use
-casework first" rather than a dead end, and the status bar always
-shows the tool, active case, and workspace you are about to touch.
-(Explicit `status <case-id> …` forms still work everywhere.)
+silent. Milestone commands end with a `next:` hint, and dispatch is
+forgiving: a bare tool name selects the tool (`casework` is `use
+casework`), `casework init …` runs the rest of the line in that tool's
+context, and any tool command typed from anywhere switches the active
+tool to its owner — announcing the switch — instead of erroring. The
+status bar always shows the tool, active case, and workspace you are
+about to touch. (Explicit `status <case-id> …` forms still work
+everywhere.)
 
 Cases follow `draft → pending → submitted → referred → closed`
 (forward-only; `submitted`/`referred` are YELLOW). Associations surface
@@ -308,7 +318,9 @@ significant attestation.
 identifier-research, imagery, infrastructure, property, environmental,
 and preservation — what you *could* do with tools like Sherlock,
 Maigret, or phoneinfoga, encoded as documented procedure instead of
-executed automation. The suite prints; the human browses.
+executed automation. The suite prints; the human browses. (Also
+scriptable: `chr0nix guide list | show | capture`; see
+[docs/guide.md](docs/guide.md).)
 
 ```text
 chr0nix:guide > methods                            # catalogue, tier-marked
@@ -354,9 +366,9 @@ them.
   **superseded by this monorepo**; their histories are preserved in
   their original repos, and their READMEs live on here under `docs/`.
 - The chr0nix timeline tool previously lived at this repository's root;
-  its CLI is now `python -m chr0nix.timeline`, and its original README —
-  the full command reference — is preserved in this repository's git
-  history.
+  its CLI is now `python -m chr0nix.timeline`, and its documentation is
+  [docs/timeline.md](docs/timeline.md) (adapted from the original README,
+  preserved in this repository's git history).
 - Outputs are designed to diff: commit manifests, custody logs, and
   timelines to a case repository, or keep them in write-once storage
   alongside your reports.

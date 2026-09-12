@@ -31,8 +31,8 @@ always overrides them.
 from dataclasses import dataclass
 from pathlib import Path
 
-from cust0dia.paths import is_within
-
+from ..core import fields as _core_fields
+from ..core.safety import is_within
 from ..errors import SuiteError
 from ..tiers import PendingAction
 
@@ -49,12 +49,7 @@ def _check_free_text(value: str, what: str) -> str:
     writer enforces is applied here so a bad actor name fails at
     ``set`` time, not mid-logging.
     """
-    cleaned = value.strip()
-    if any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
-        raise SuiteError(f"{what} must not contain control characters")
-    if not cleaned:
-        raise SuiteError(f"{what} must not be empty")
-    return cleaned
+    return _core_fields.clean_field(value, what, required=True, error=SuiteError)
 
 
 @dataclass
@@ -83,6 +78,12 @@ class SessionContext:
     #: cleared by `ack` or by any other command. A plain attribute:
     #: only the command layer's challenge/ack flow mutates it.
     pending_action: PendingAction | None = None
+    #: The active guided form (subject/vehicle profile editing), a
+    #: chr0nix.console.forms.GuidedForm. While set, every typed line is
+    #: form input, not a command. A plain attribute: only the command
+    #: layer's form flow mutates it. Typed as object to keep session
+    #: importable without the forms module.
+    form: object | None = None
 
     def set_option(self, name: str, value: str) -> str:
         """Validate and store one option; return a confirmation message.

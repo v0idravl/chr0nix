@@ -10,6 +10,7 @@ import os
 import tempfile
 import unittest
 
+import h4ndl3
 from h4ndl3 import manifest
 from h4ndl3.common import OutputPathError
 
@@ -60,7 +61,7 @@ class ManifestTests(unittest.TestCase):
         manifest.write_manifest(self.root, out, fmt="json", hashed_at_utc=NOW)
         with open(out, encoding="utf-8") as handle:
             document = json.load(handle)
-        self.assertEqual(document["tool"], "h4ndl3")
+        self.assertEqual(document["tool"], f"h4ndl3 {h4ndl3.__version__}")
         self.assertEqual(document["generated_at_utc"], NOW)
         self.assertEqual(document["root"], self.root)
         self.assertEqual(len(document["entries"]), 2)
@@ -93,7 +94,10 @@ class ManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             manifest.write_manifest(self.root, out, fmt="yaml", hashed_at_utc=NOW)
 
-    def test_symlinks_not_followed(self):
+    def test_symlinks_hashed_as_resolved_content(self):
+        # Suite-wide policy (chr0nix.core.manifest): a symlinked file is
+        # hashed as the content it resolves to — what an examiner opening
+        # it would see — never silently skipped.
         target = self._write("target.txt", b"real")
         link = os.path.join(self.root, "link.txt")
         try:
@@ -101,9 +105,19 @@ class ManifestTests(unittest.TestCase):
         except OSError:
             self.skipTest("symlinks unavailable on this platform")
         entries = manifest.build_entries(self.root, hashed_at_utc=NOW)
-        names = [e["relative_path"] for e in entries]
-        self.assertIn("target.txt", names)
-        self.assertNotIn("link.txt", names)
+        by_name = {e["relative_path"]: e for e in entries}
+        self.assertIn("target.txt", by_name)
+        self.assertIn("link.txt", by_name)
+        self.assertEqual(by_name["link.txt"]["sha256"], hashlib.sha256(b"real").hexdigest())
+
+    def test_broken_symlink_is_a_loud_error(self):
+        link = os.path.join(self.root, "dangling.txt")
+        try:
+            os.symlink(os.path.join(self.root, "absent.bin"), link)
+        except OSError:
+            self.skipTest("symlinks unavailable on this platform")
+        with self.assertRaisesRegex(ValueError, "broken symlink"):
+            manifest.build_entries(self.root, hashed_at_utc=NOW)
 
     def test_empty_directory_manifest(self):
         empty = os.path.join(self._tmp.name, "empty")
