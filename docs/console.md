@@ -18,12 +18,29 @@ clean pointer to the CLIs, which remain fully functional — and since
 casework and guide have their own CLIs (`chr0nix case`, `chr0nix guide`),
 every console capability is reachable non-interactively.
 
+### The menu
+
+The console opens into a selectable menu — the suite's tools as a
+highlighted list. Arrows **or vim keys** move (`↑↓`/`jk` navigate,
+`Enter`/`→`/`l` selects, `←`/`h`/`q`/Esc backs out); each row shows its
+summary inline, and a live **detail pane** beside the list shows the
+highlighted item's module card or command help — further information is
+always one keystroke away, or zero. Selecting a tool loads it (`use
+<tool>`, card and all) and opens its command menu; selecting a command
+either runs it (when it needs no arguments) or prefills the input line
+with the command's name, so only the arguments are typed. Typing any
+other character leaves the menu and starts a command line with it; the
+`menu` command reopens the menu at any time. Every menu action goes
+through the same dispatcher as a typed line, so the scrollback records
+what actually ran.
+
 The screen is, top to bottom: a **status bar** (active tool, the guided
 form currently owning the input line with its field progress, an armed
 YELLOW challenge awaiting `ack`, workspace, active case,
 evidence/output/manifest/log — what the next command will touch, before
-it runs), a **scrollback** (verify statuses color-coded when the terminal
-supports color), and an **input line** with a small line editor: arrows,
+it runs), a **body** (the menu while one is open, otherwise the
+scrollback — verify statuses color-coded when the terminal supports
+color), and an **input line** with a small line editor: arrows,
 home/end, Ctrl-U clear, up/down history (in memory only — never written
 to disk), tab completion, PgUp/PgDn paging, Ctrl-C/Ctrl-D to leave.
 
@@ -51,6 +68,7 @@ The grammar is deliberately tiny, in the operator-console tradition:
 | Command | Meaning |
 | --- | --- |
 | `help [topic]` | scoped help: a command, a tool, `core`, or `all` (bare: an overview, or the active tool's commands once one is loaded) |
+| `menu` | open the arrow-key navigation menu (the startup screen) |
 | `info [tool]` | the active (or named) tool's full module card |
 | `show tools` | the registered tools, tier-marked, with the active one |
 | `show options` | the session as a table: value, whether the active tool requires it, and a description per option — with required-but-unset options called out |

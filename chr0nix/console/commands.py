@@ -12,6 +12,9 @@ The grammar is deliberately tiny, in the operator-console tradition:
   ``core``, or ``all``; bare ``help`` shows what matters in the current
   context (an overview with no active tool, the active tool's commands
   once one is loaded)
+- ``menu``                       — open the arrow-key navigation menu
+  (the startup screen; tools and commands as selectable lists with a
+  detail pane)
 - ``info [tool]``                — the active (or named) tool's full
   module card: summary, what ``run`` does, the options it needs, every
   command
@@ -100,10 +103,20 @@ class ConsoleClear(Exception):
     """
 
 
+class ConsoleMenu(Exception):
+    """Raised by ``menu``; the UI catches it and opens the arrow-key menu.
+
+    Menu state lives entirely in the UI (it is a way of *seeing* the
+    registry, not session state), so the command layer signals exactly
+    like :class:`ConsoleExit` and :class:`ConsoleClear`.
+    """
+
+
 #: ``(name, usage, summary)`` for the core commands, in help order.
 _CORE_HELP: tuple[tuple[str, str, str], ...] = (
     ("help", "help [topic]", "scoped help: a command, a tool, `core`, or "
      "`all` (bare: what matters in the current context)"),
+    ("menu", "menu", "open the arrow-key navigation menu"),
     ("info", "info [tool]", "the active (or named) tool's full module card"),
     ("show", "show tools|options|attestations",
      "list registered tools / show session state / print the attestation log"),
@@ -148,6 +161,7 @@ def _help_overview() -> str:
     ]
     lines += [
         "orient:",
+        "  menu            navigate tools and commands with the arrow keys",
         "  use <tool>      load a tool — prints its module card "
         "(what it needs, top commands)",
         "  help <tool>     a tool's commands without switching to it",
@@ -476,6 +490,10 @@ def _cmd_exit(session: SessionContext, args: list[str]) -> str:
     raise ConsoleExit
 
 
+def _cmd_menu(session: SessionContext, args: list[str]) -> str:
+    raise ConsoleMenu
+
+
 def _cmd_clear(session: SessionContext, args: list[str]) -> str:
     raise ConsoleClear
 
@@ -487,6 +505,7 @@ def _core_commands() -> list[tuple[str, str, str]]:
 #: Core command handlers keyed by command word.
 _CORE_HANDLERS = {
     "help": _cmd_help,
+    "menu": _cmd_menu,
     "info": _cmd_info,
     "show": _cmd_show,
     "use": _cmd_use,

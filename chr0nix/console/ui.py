@@ -11,15 +11,19 @@ Layout (top to bottom):
    (while a guided form owns the input line), active case, workspace,
    evidence, manifest, log. An investigator should always be able to see what
    the next command will touch *before* touching it.
-2. **Scrollback** — command output, newest at the bottom. Verify
-   statuses are color-coded when the terminal supports color; without
-   color the output is byte-identical to the CLI's.
+2. **Body** — the arrow-key menu while one is open (it opens at
+   startup: tools on the left, the highlighted item's module card or
+   command help on the right), otherwise the scrollback of command
+   output, newest at the bottom. Verify statuses are color-coded when
+   the terminal supports color; without color the output is
+   byte-identical to the CLI's.
 3. **Input line** — a small line editor: printable characters,
    backspace, arrows, home/end, Ctrl-U clear, up/down history, tab
    completion (an ambiguous tab extends to the common prefix, a second
    tab lists the candidates), PgUp/PgDn scrollback paging,
    Ctrl-C/Ctrl-D to leave. While a guided form owns the session, the
-   prompt names the form and the field position.
+   prompt names the form and the field position; while a menu is open,
+   the input line carries the menu's key hints instead.
 
 History is kept in memory only. No history file is ever written: case
 paths and actor names are case data, and a console that leaks them to
@@ -32,7 +36,8 @@ import os
 from .. import __version__
 from ..core import editor as core_editor
 from ..errors import SuiteError, user_facing_errors
-from .commands import ConsoleClear, ConsoleExit, complete, dispatch
+from . import menu
+from .commands import ConsoleClear, ConsoleExit, ConsoleMenu, complete, dispatch
 from .forms import EditorHandoff
 from .session import SessionContext
 
@@ -44,10 +49,62 @@ MIN_LINES = 20
 
 _WELCOME = (
     f"chr0nix console {__version__} — the investigative-documentation suite\n"
-    "type `help` for commands; `show tools` to see the suite; `exit` to leave\n"
-    "quickstart: init <workspace-dir> · set actor <name> · new <case-id> <title>\n"
-    "tool commands run from anywhere — `casework`, `casework init …`, or just `init …` all work"
+    "the menu is open: arrows or hjkl move, Enter selects, ←/h goes back\n"
+    "type anytime to enter commands directly (`menu` reopens the menu; `exit` leaves)\n"
+    "quickstart: init <workspace-dir> · set actor <name> · new <case-id> <title>"
 )
+
+#: The input-line text while a menu is open (there is no input then).
+_MENU_HINT = "menu: ↑↓/jk move · Enter/→/l select · ←/h/q/Esc back · type to leave"
+
+#: Keys read ahead while decoding an escape sequence, to be returned
+#: before the next ``get_wch`` (see :func:`_read_key`).
+_KEY_PUSHBACK: list = []
+
+#: The two escape-sequence dialects for the arrow keys: normal mode
+#: (``ESC [ B``) and application mode (``ESC O B``), which is what
+#: xterm sends once curses' ``keypad(True)`` enables application
+#: cursor keys. ``terminfo`` is usually enough — but only when the
+#: sequence arrives in one read, and terminals (and ptys) split them.
+_ESCAPES = {
+    "[A": curses.KEY_UP, "[B": curses.KEY_DOWN,
+    "[C": curses.KEY_RIGHT, "[D": curses.KEY_LEFT,
+    "OA": curses.KEY_UP, "OB": curses.KEY_DOWN,
+    "OC": curses.KEY_RIGHT, "OD": curses.KEY_LEFT,
+}
+
+
+def _read_key(stdscr):
+    """Read one key, decoding split escape sequences into arrow keys.
+
+    ``get_wch`` alone returns a bare ``\x1b`` whenever the terminal
+    delivers an arrow key's sequence across reads; treating that as
+    literal input (or as a menu's "back" key) misfires. Here a bare
+    Esc is followed by a brief non-blocking peek: the next two bytes
+    of a known sequence decode to the arrow key, anything else is
+    pushed back and the key is a genuine Esc press.
+    """
+    if _KEY_PUSHBACK:
+        return _KEY_PUSHBACK.pop(0)
+    key = stdscr.get_wch()
+    if key != "\x1b":
+        return key
+    stdscr.nodelay(True)
+    seq = []
+    try:
+        for _ in range(2):
+            try:
+                seq.append(stdscr.get_wch())
+            except curses.error:
+                break
+    finally:
+        stdscr.nodelay(False)
+    tail = "".join(c for c in seq if isinstance(c, str))
+    mapped = _ESCAPES.get(tail)
+    if mapped is not None:
+        return mapped
+    _KEY_PUSHBACK.extend(seq)
+    return "\x1b"
 
 #: Color pair IDs, assigned in ``_init_colors``. Pair 0 is curses'
 #: immutable default, so custom pairs start at 1.
@@ -160,6 +217,32 @@ def _wrap(text: str, width: int) -> list[str]:
             lines.append(raw[:width])
             raw = raw[width:]
     return lines
+
+
+def _draw_menu(stdscr, current: menu.Menu, body_rows: int, width: int) -> None:
+    """Render one menu: selectable items on the left, the highlighted
+    item's detail (module card / command help) live on the right.
+
+    The body rows were cleared by the caller. The item list scrolls as
+    the highlight approaches the bottom; the detail pane is simply the
+    item's prebuilt text wrapped to the remaining columns.
+    """
+    stdscr.addnstr(1, 0, current.title, width, curses.A_BOLD)
+    label_w = max(len(item.label) for item in current.items)
+    left_w = min(max(label_w + 24, 40), width - 24)
+    right_x = left_w + 1
+    right_w = width - right_x
+    max_items = body_rows - 1  # the title occupies one body row
+    start = min(
+        max(0, current.index - max_items + 1),
+        max(0, len(current.items) - max_items),
+    )
+    for row, item in enumerate(current.items[start : start + max_items]):
+        text = f"{item.label:<{label_w}}  {item.description}"
+        attr = curses.A_REVERSE if start + row == current.index else 0
+        stdscr.addnstr(row + 2, 0, text.ljust(left_w), left_w, attr)
+    for row, line in enumerate(_wrap(current.current.detail, right_w)[: max_items]):
+        stdscr.addnstr(row + 2, right_x, line, right_w)
 
 
 class _Editor:
@@ -309,6 +392,9 @@ def _main_loop(stdscr, session: SessionContext) -> None:
     # Scrollback holds (text, attr) display lines, already wrapped.
     scrollback: list[tuple[str, int]] = []
     scroll_offset = 0  # lines up from the bottom; 0 = following newest
+    # The console opens into the tool menu — the self-explanatory front
+    # door. None means the plain scrollback/prompt view.
+    current_menu: menu.Menu | None = menu.root_menu(session)
 
     def emit(text: str, attr: int = 0) -> None:
         for wrapped in _wrap(text, width):
@@ -317,71 +403,133 @@ def _main_loop(stdscr, session: SessionContext) -> None:
     for line in _wrap(_WELCOME, width):
         scrollback.append((line, curses.A_BOLD))
 
+    def execute(line: str) -> None:
+        """Echo and dispatch one line, exactly as if it had been typed.
+
+        Used by the Enter key and by menu actions alike, so a menu
+        selection is indistinguishable from the command it stands for —
+        the scrollback always records what actually ran.
+        """
+        nonlocal scroll_offset, current_menu
+        scroll_offset = 0
+        emit(f"{_prompt_text(session)}{line}", curses.A_BOLD)
+        try:
+            output = dispatch(session, line)
+        except ConsoleExit:
+            raise
+        except ConsoleClear:
+            scrollback.clear()
+        except ConsoleMenu:
+            current_menu = menu.root_menu(session)
+        except EditorHandoff as handoff:
+            # A form field (or statement/event `:edit`) wants the
+            # terminal editor: suspend curses, compose, resume.
+            text, error = _editor_round_trip(stdscr, handoff)
+            if error is not None:
+                emit(f"chr0nix: error: {error}", _STATUS_COLORS.get("error", 0))
+            try:
+                handoff_output, form_done = handoff.resume(text)
+            except user_facing_errors() as exc:
+                session.form = None
+                emit(f"chr0nix: error: {exc}", _STATUS_COLORS.get("error", 0))
+            else:
+                if form_done:
+                    session.form = None
+                for out_line in handoff_output.split("\n"):
+                    emit(out_line, _line_attr(out_line))
+        except user_facing_errors() as exc:
+            # The shared tuple covers the shell's own validation
+            # (SuiteError) and every module package's error types —
+            # an unknown exhibit, a malformed manifest, an invalid
+            # finding, an unparseable image. All are user-fixable and
+            # render as one clean line; anything else tracebacks.
+            emit(f"chr0nix: error: {exc}", _STATUS_COLORS.get("error", 0))
+        else:
+            if output:
+                for out_line in output.split("\n"):
+                    emit(out_line, _line_attr(out_line))
+
+    def activate(item: menu.MenuItem) -> None:
+        """Perform the highlighted menu item's action (see menu.py)."""
+        nonlocal current_menu
+        kind, value = item.action
+        if kind == "use":
+            execute(f"use {value}")
+            current_menu = menu.tool_menu(session, value, parent=current_menu)
+        elif kind == "submenu":
+            current_menu = menu.core_menu(session, parent=current_menu)
+        elif kind == "run":
+            current_menu = None
+            execute(value)
+        elif kind == "prefill":
+            # Commands that need arguments leave the menu with the
+            # command name in the input line — the operator types only
+            # the arguments.
+            current_menu = None
+            editor.buffer = list(value)
+            editor.cursor = len(editor.buffer)
+
     while True:
         height, width = stdscr.getmaxyx()
         status = _status_text(session)
         stdscr.addnstr(0, 0, status.ljust(width), width, curses.A_REVERSE)
 
         body_rows = height - 2  # status bar + input line
-        visible = scrollback[len(scrollback) - body_rows - scroll_offset:len(scrollback) - scroll_offset or None]
         for row in range(body_rows):
             stdscr.move(row + 1, 0)
             stdscr.clrtoeol()
-        for row, (text, attr) in enumerate(visible[-body_rows:]):
-            stdscr.addnstr(row + 1, 0, text, width, attr)
+        if current_menu is not None:
+            _draw_menu(stdscr, current_menu, body_rows, width)
+        else:
+            visible = scrollback[len(scrollback) - body_rows - scroll_offset:len(scrollback) - scroll_offset or None]
+            for row, (text, attr) in enumerate(visible[-body_rows:]):
+                stdscr.addnstr(row + 1, 0, text, width, attr)
 
-        prompt = _prompt_text(session)
         input_row = height - 1
         stdscr.move(input_row, 0)
         stdscr.clrtoeol()
-        stdscr.addnstr(input_row, 0, prompt, width, curses.A_BOLD)
-        stdscr.addnstr(input_row, len(prompt), editor.text(), width - len(prompt) - 1)
-        stdscr.move(input_row, min(len(prompt) + editor.cursor, width - 1))
+        if current_menu is not None:
+            stdscr.addnstr(input_row, 0, _MENU_HINT, width, curses.A_BOLD)
+            stdscr.move(input_row, min(len(_MENU_HINT), width - 1))
+        else:
+            prompt = _prompt_text(session)
+            stdscr.addnstr(input_row, 0, prompt, width, curses.A_BOLD)
+            stdscr.addnstr(input_row, len(prompt), editor.text(), width - len(prompt) - 1)
+            stdscr.move(input_row, min(len(prompt) + editor.cursor, width - 1))
         stdscr.refresh()
 
         try:
-            key = stdscr.get_wch()
+            key = _read_key(stdscr)
         except curses.error:
+            continue
+
+        if current_menu is not None:
+            # Menu mode: arrows (and hjkl) navigate; typing any other
+            # printable character leaves the menu and starts a command.
+            if key == curses.KEY_UP or key == "k":
+                current_menu.move(-1)
+            elif key == curses.KEY_DOWN or key == "j":
+                current_menu.move(1)
+            elif key == curses.KEY_LEFT or key in ("h", "q", "\x1b"):
+                current_menu = current_menu.parent  # None at the root
+            elif key in (curses.KEY_RIGHT, curses.KEY_ENTER) or key in ("l", "\n", "\r"):
+                try:
+                    activate(current_menu.current)
+                except ConsoleExit:
+                    return
+            elif isinstance(key, str) and key in ("\x03", "\x04"):  # Ctrl-C / Ctrl-D
+                return
+            elif isinstance(key, str) and key.isprintable():
+                current_menu = None
+                editor.insert(key)
             continue
 
         if isinstance(key, str) and key in ("\n", "\r"):
             line = editor.submit()
-            emit(f"{prompt}{line}", curses.A_BOLD)
-            scroll_offset = 0
             try:
-                output = dispatch(session, line)
+                execute(line)
             except ConsoleExit:
                 return
-            except ConsoleClear:
-                scrollback.clear()
-                continue
-            except EditorHandoff as handoff:
-                # A form field (or statement/event `:edit`) wants the
-                # terminal editor: suspend curses, compose, resume.
-                text, error = _editor_round_trip(stdscr, handoff)
-                if error is not None:
-                    emit(f"chr0nix: error: {error}", _STATUS_COLORS.get("error", 0))
-                try:
-                    handoff_output, form_done = handoff.resume(text)
-                except user_facing_errors() as exc:
-                    session.form = None
-                    emit(f"chr0nix: error: {exc}", _STATUS_COLORS.get("error", 0))
-                else:
-                    if form_done:
-                        session.form = None
-                    for out_line in handoff_output.split("\n"):
-                        emit(out_line, _line_attr(out_line))
-            except user_facing_errors() as exc:
-                # The shared tuple covers the shell's own validation
-                # (SuiteError) and every module package's error types —
-                # an unknown exhibit, a malformed manifest, an invalid
-                # finding, an unparseable image. All are user-fixable and
-                # render as one clean line; anything else tracebacks.
-                emit(f"chr0nix: error: {exc}", _STATUS_COLORS.get("error", 0))
-            else:
-                if output:
-                    for out_line in output.split("\n"):
-                        emit(out_line, _line_attr(out_line))
         elif isinstance(key, str) and key == "\t":
             candidates = editor.tab_complete(session)
             if candidates:

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Arrow-key navigation menu** (`chr0nix/console/menu.py`, curses-free
+  and unit-tested like the command layer). The console now opens into a
+  selectable menu: the suite's tools as a highlighted list with inline
+  summaries and a live detail pane (the highlighted item's module card
+  or command help). Arrows and vim keys both navigate (`↑↓`/`jk` move,
+  `Enter`/`→`/`l` select, `←`/`h`/`q`/Esc back); selecting a tool loads
+  it (`use <tool>`) and opens its command menu; selecting a command
+  runs it when it needs no arguments, or prefills the input line with
+  its name when it does. Typing any other character leaves the menu and
+  starts a command line with it; the new `menu` core command reopens
+  the menu. Split escape sequences (a bare `ESC [ B` arriving across
+  reads) are decoded into arrow keys, in both the normal-mode and
+  application-mode dialects.
+
 - **Console operator-UX layer** (`chr0nix/console/commands.py`,
   `tools.py`, `session.py`, `ui.py`). Help is now scoped: bare `help`
   shows an overview (core table + tool list) until a tool is loaded,
