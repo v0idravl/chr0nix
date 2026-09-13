@@ -237,7 +237,7 @@ def _cmd_help(session: SessionContext, args: list[str]) -> str:
             return _tool_help(tool, active=True)
         return _help_overview()
     wanted = " ".join(args)
-    if wanted == "core":
+    if wanted in ("core", "c0r3"):
         return _core_help_text()
     if wanted == "all":
         return _help_all(session)
@@ -525,9 +525,9 @@ def _active_tool(session: SessionContext) -> tools.Tool | None:
 
 
 def _tool_named(name: str) -> tools.Tool | None:
-    """The registered tool called ``name``, or None — no error."""
+    """The registered tool called ``name`` — canonical or alias — or None."""
     for tool in tools.REGISTRY:
-        if tool.name == name:
+        if tool.name == name or name in tool.aliases:
             return tool
     return None
 
@@ -550,8 +550,10 @@ def _suggest(wanted: str, candidates) -> str:
 
 def _help_topics() -> set[str]:
     """Everything ``help`` accepts: keywords, tool names, command names."""
-    topics = {"core", "all"}
-    topics.update(tool.name for tool in tools.REGISTRY)
+    topics = {"core", "c0r3", "all"}
+    for tool in tools.REGISTRY:
+        topics.add(tool.name)
+        topics.update(tool.aliases)
     topics.update(name for name, _, _ in _available_commands())
     return topics
 
@@ -789,7 +791,9 @@ def complete(session: SessionContext, line: str) -> list[str]:
         prefix = tokens[0] if tokens else ""
         names = [name for name, _, _ in _available_commands()]
         # Tool names complete too: a bare tool name selects the tool.
+        # Aliases are included so the former names still complete.
         names += [tool.name for tool in tools.REGISTRY]
+        names += [alias for tool in tools.REGISTRY for alias in tool.aliases]
         return sorted(name for name in names if name.startswith(prefix))
     head = tokens[0]
     prefix = "" if ends_with_space else tokens[-1]
@@ -803,7 +807,9 @@ def complete(session: SessionContext, line: str) -> list[str]:
             return [f"set {tokens[1]} {path}" for path in _complete_paths(prefix)]
         return []
     if head in ("use", "info") and on_second_word:
-        return sorted(f"{head} {tool.name}" for tool in tools.REGISTRY if tool.name.startswith(prefix))
+        names = [tool.name for tool in tools.REGISTRY]
+        names += [alias for tool in tools.REGISTRY for alias in tool.aliases]
+        return sorted(f"{head} {name}" for name in names if name.startswith(prefix))
     if head == "help" and (len(tokens) > 1 or ends_with_space):
         # The topic may be several words ("show exhibits"); complete the
         # whole topic string, not just the last token.

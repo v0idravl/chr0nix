@@ -118,24 +118,24 @@ class WorkflowTests(unittest.TestCase):
 
     def test_tool_command_at_root_switches_and_runs(self):
         output = dispatch(self.session, f"init {self.ws}")
-        self.assertEqual(self.session.active_tool, "casework")
-        self.assertTrue(output.startswith("active tool -> casework"))
+        self.assertEqual(self.session.active_tool, "c4s3w0rk")
+        self.assertTrue(output.startswith("active tool -> c4s3w0rk"))
         self.assertIn("initialized casework workspace", output)
 
     def test_tool_command_switches_away_from_active_tool(self):
         dispatch(self.session, "use cust0dia")
         output = dispatch(self.session, f"init {self.ws}")
-        self.assertEqual(self.session.active_tool, "casework")
-        self.assertIn("active tool -> casework", output)
+        self.assertEqual(self.session.active_tool, "c4s3w0rk")
+        self.assertIn("active tool -> c4s3w0rk", output)
 
     def test_bare_tool_name_selects_the_tool(self):
         output = dispatch(self.session, "casework")
-        self.assertEqual(self.session.active_tool, "casework")
-        self.assertIn("active tool -> casework", output)
+        self.assertEqual(self.session.active_tool, "c4s3w0rk")
+        self.assertIn("active tool -> c4s3w0rk", output)
 
     def test_tool_prefix_runs_the_rest_in_that_context(self):
         output = dispatch(self.session, f"casework init {self.ws}")
-        self.assertEqual(self.session.active_tool, "casework")
+        self.assertEqual(self.session.active_tool, "c4s3w0rk")
         self.assertIn("initialized casework workspace", output)
 
     def test_genuinely_unknown_command_still_unknown(self):
@@ -147,7 +147,7 @@ class WorkflowTests(unittest.TestCase):
     def test_status_bar_shows_case_and_workspace(self):
         self.bootstrap()
         bar = _status_text(self.session)
-        self.assertIn("tool: casework", bar)
+        self.assertIn("tool: c4s3w0rk", bar)
         self.assertIn("case: case-2026-014", bar)
         self.assertIn("ws: cases", bar)
 

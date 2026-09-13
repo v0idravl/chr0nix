@@ -229,12 +229,12 @@ class ConsoleTests(unittest.TestCase):
     def test_bare_use_lists_tools(self):
         output = dispatch(self.session, "use")
         self.assertIn("cust0dia", output)
-        self.assertIn("casework", output)
+        self.assertIn("c4s3w0rk", output)
 
     def test_help_all_lists_every_tool_commands(self):
         # Bare `help` is scoped now; `help all` keeps the full dump.
         output = dispatch(self.session, "help all")
-        self.assertIn("casework commands:", output)
+        self.assertIn("c4s3w0rk commands:", output)
         self.assertIn("log <exhibit> <ACTION>", output)
 
     def test_completion_offers_tool_names_and_all_commands(self):

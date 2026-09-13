@@ -10,7 +10,7 @@ It has two front ends over the same code:
 
 - the **CLI** — `chr0nix case ...` (or `python -m chr0nix.casework`),
   scriptable, usable on any terminal;
-- the **console** — `python -m chr0nix console`, then `use casework`.
+- the **console** — `python -m chr0nix console`, then `use c4s3w0rk`.
 
 Both call the same functions in `chr0nix/casework/`; every safety rule
 (append-only logs, slug-safe identifiers, control-character rejection) is
@@ -146,10 +146,10 @@ In the **console**, profiles are filled in with a guided form (the "fill in
 the boxes" flow — see [docs/console.md](console.md#guided-profile-forms)):
 
 ```text
-chr0nix:casework > subject add            # walks every field; Enter skips
-chr0nix:casework > subject edit subj-001  # same form, current values prefilled
-chr0nix:casework > subject show subj-001  # the aligned profile card + linked cases
-chr0nix:casework > subject set subj-001 phones "+1 555 0100, +1 555 0101"
+chr0nix:c4s3w0rk > subject add            # walks every field; Enter skips
+chr0nix:c4s3w0rk > subject edit subj-001  # same form, current values prefilled
+chr0nix:c4s3w0rk > subject show subj-001  # the aligned profile card + linked cases
+chr0nix:c4s3w0rk > subject set subj-001 phones "+1 555 0100, +1 555 0101"
 ```
 
 (`vehicle add` / `vehicle edit` / `vehicle show` / `vehicle set` and the
@@ -346,21 +346,21 @@ chr0nix case synopsis case-2026-014                   # regenerated, determinist
 ### Example session (console)
 
 ```text
-chr0nix > use casework
-chr0nix:casework > init /cases/2026            # creates + sets + initializes
-chr0nix:casework > set actor A. Rivera
-chr0nix:casework > new case-2026-014 LP office theft
-chr0nix:casework > classify external-theft/method/concealment
-chr0nix:casework > inbox                       # 1 unfiled item(s)
-chr0nix:casework > file                        # moved, manifested, custody-logged
-chr0nix:casework > link subject subj-001 suspect   # YELLOW — then: ack <reason>
-chr0nix:casework > links                       # associated cases, with reasons
-chr0nix:casework > subject edit subj-001       # guided form, values prefilled
-chr0nix:casework > subject show subj-001       # the profile card
-chr0nix:casework > statement stmt-001 "J. Doe" witness :edit   # body in $EDITOR
-chr0nix:casework > statement-sign stmt-001     # YELLOW — attested
-chr0nix:casework > status pending
-chr0nix:casework > synopsis                    # regenerated, deterministic
+chr0nix > use c4s3w0rk
+chr0nix:c4s3w0rk > init /cases/2026            # creates + sets + initializes
+chr0nix:c4s3w0rk > set actor A. Rivera
+chr0nix:c4s3w0rk > new case-2026-014 LP office theft
+chr0nix:c4s3w0rk > classify external-theft/method/concealment
+chr0nix:c4s3w0rk > inbox                       # 1 unfiled item(s)
+chr0nix:c4s3w0rk > file                        # moved, manifested, custody-logged
+chr0nix:c4s3w0rk > link subject subj-001 suspect   # YELLOW — then: ack <reason>
+chr0nix:c4s3w0rk > links                       # associated cases, with reasons
+chr0nix:c4s3w0rk > subject edit subj-001       # guided form, values prefilled
+chr0nix:c4s3w0rk > subject show subj-001       # the profile card
+chr0nix:c4s3w0rk > statement stmt-001 "J. Doe" witness :edit   # body in $EDITOR
+chr0nix:c4s3w0rk > statement-sign stmt-001     # YELLOW — attested
+chr0nix:c4s3w0rk > status pending
+chr0nix:c4s3w0rk > synopsis                    # regenerated, deterministic
 ```
 
 In the console, every case-acting command defaults to the *active case*

@@ -111,7 +111,7 @@ def root_menu(session: SessionContext) -> Menu:
     ]
     items.append(
         MenuItem(
-            label="core",
+            label="c0r3",
             description="the core commands: help, show, set, run, ack, ...",
             detail=_core_help_text(),
             action=("submenu", "core"),

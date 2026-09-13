@@ -88,7 +88,7 @@ class MethodsListingTests(GuideTestCase):
         output = dispatch(self.session, "show tools")
         names = [line.split()[0] for line in output.splitlines()[1:7]]
         self.assertEqual(
-            names, ["cust0dia", "timeline", "h4ndl3", "m3talex", "casework", "guide"]
+            names, ["cust0dia", "t1m3l1n3", "h4ndl3", "m3talex", "c4s3w0rk", "gu1d3"]
         )
 
 
@@ -127,13 +127,13 @@ class HintTests(GuideTestCase):
         self.set_workspace_and_actor()
         output = dispatch(self.session, "hint username-search")
         self.assertTrue(output.startswith("YELLOW"), output)
-        self.assertIn("guide hint username-search", output)
+        self.assertIn("gu1d3 hint username-search", output)
         output = dispatch(self.session, "ack authorized handle research")
         self.assertIn("Username search across platforms", output)
         self.assertIn("https://whatsmyname.app/?q={query}", output)
         rows = self.attest_rows()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][2], "guide hint username-search")
+        self.assertEqual(rows[0][2], "gu1d3 hint username-search")
         self.assertEqual(rows[0][3], "authorized handle research")
 
     def test_yellow_hint_without_workspace_is_clean_error(self):
@@ -246,7 +246,7 @@ class CaptureTests(GuideTestCase):
         self.assertEqual(len(attest), 1)
         self.assertEqual(
             attest[0][2],
-            "guide capture username-search platform=example-social confidence=medium",
+            "gu1d3 capture username-search platform=example-social confidence=medium",
         )
 
 

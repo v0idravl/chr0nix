@@ -110,6 +110,10 @@ class Tool:
     ``requires`` / ``optional`` name the session options the tool's
     commands draw on, so ``use``, ``info``, and ``show options`` can
     orient the operator: required options are called out while unset.
+
+    ``aliases`` are former plain-language names kept working by the
+    forgiving dispatch (typing ``casework`` still loads ``c4s3w0rk``);
+    the canonical ``name`` is what every display shows.
     """
 
     name: str
@@ -121,6 +125,7 @@ class Tool:
     run_summary: str = ""
     requires: tuple[str, ...] = ()
     optional: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +450,8 @@ def _cmd_timeline_schema(session: SessionContext, args: list[str]) -> str:
 
 
 TIMELINE_TOOL = Tool(
-    name="timeline",
+    name="t1m3l1n3",
+    aliases=("timeline",),
     summary="merge source CSV exports into one UTC exhibit timeline",
     run=_run_timeline,
     run_summary="build the timeline from every *.csv under the session "
@@ -1425,7 +1431,8 @@ def _run_casework(session: SessionContext) -> str:
 
 
 CASEWORK_TOOL = Tool(
-    name="casework",
+    name="c4s3w0rk",
+    aliases=("casework",),
     summary="case workspaces: cases, entities, and associations",
     run=_run_casework,
     run_summary="the workspace case table plus a status-count summary",
@@ -1731,7 +1738,8 @@ def _run_guide(session: SessionContext) -> str:
 
 
 GUIDE_TOOL = Tool(
-    name="guide",
+    name="gu1d3",
+    aliases=("guide",),
     summary="offline research-method knowledge base (browser handoffs)",
     run=_run_guide,
     run_summary="print the method catalogue with usage hints",
@@ -1785,9 +1793,13 @@ REGISTRY: tuple[Tool, ...] = (
 
 
 def lookup_tool(name: str) -> Tool:
-    """Return the registered tool called ``name`` or raise."""
+    """Return the registered tool called ``name`` or raise.
+
+    Aliases (the former plain-language names) resolve to the canonical
+    tool, so old docs and muscle memory keep working.
+    """
     for tool in REGISTRY:
-        if tool.name == name:
+        if tool.name == name or name in tool.aliases:
             return tool
     known = ", ".join(tool.name for tool in REGISTRY)
     raise SuiteError(f"unknown tool {name!r}; registered tools: {known}")

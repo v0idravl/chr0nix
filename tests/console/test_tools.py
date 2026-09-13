@@ -62,12 +62,12 @@ class RegistryTests(ConsoleToolTestCase):
     def test_show_tools_lists_all_four_in_order(self):
         output = dispatch(self.session, "show tools")
         names = [line.split()[0] for line in output.splitlines()[1:5]]
-        self.assertEqual(names, ["cust0dia", "timeline", "h4ndl3", "m3talex"])
+        self.assertEqual(names, ["cust0dia", "t1m3l1n3", "h4ndl3", "m3talex"])
 
     def test_use_each_tool(self):
         # `use` prints the module card; the first line keeps the classic
         # "active tool -> x" announcement.
-        for name in ("cust0dia", "timeline", "h4ndl3", "m3talex"):
+        for name in ("cust0dia", "t1m3l1n3", "h4ndl3", "m3talex"):
             with self.subTest(tool=name):
                 output = dispatch(self.session, f"use {name}")
                 self.assertTrue(output.startswith(f"active tool -> {name}\n"), output)
@@ -79,6 +79,44 @@ class RegistryTests(ConsoleToolTestCase):
         output = dispatch(self.session, "help")
         self.assertIn("worksheet <identifier>", output)
         self.assertIn("validate [store]", output)
+
+
+class AliasTests(ConsoleToolTestCase):
+    """The former plain-language names still work, as aliases.
+
+    ``tools.lookup_tool`` and ``commands._tool_named`` resolve them, but
+    every display shows the canonical leetspeak name.
+    """
+
+    def test_use_alias_activates_the_canonical_tool(self):
+        output = dispatch(self.session, "use casework")
+        self.assertTrue(output.startswith("active tool -> c4s3w0rk\n"), output)
+        self.assertEqual(self.session.active_tool, "c4s3w0rk")
+
+    def test_bare_alias_selects_the_canonical_tool(self):
+        output = dispatch(self.session, "casework")
+        self.assertTrue(output.startswith("active tool -> c4s3w0rk\n"), output)
+        self.assertEqual(self.session.active_tool, "c4s3w0rk")
+
+    def test_help_alias_shows_the_canonical_help(self):
+        output = dispatch(self.session, "help timeline")
+        self.assertIn("t1m3l1n3 commands:", output)
+        self.assertIn("use t1m3l1n3", output)  # the not-loaded pointer
+        self.assertIsNone(self.session.active_tool)
+
+    def test_info_alias_shows_the_canonical_card(self):
+        output = dispatch(self.session, "info guide")
+        self.assertIn("gu1d3 — offline research-method knowledge base", output)
+        self.assertIsNone(self.session.active_tool)
+
+    def test_alias_lookup_never_shows_the_alias(self):
+        output = dispatch(self.session, "use timeline")
+        self.assertIn("active tool -> t1m3l1n3", output)
+        self.assertNotIn("active tool -> timeline\n", output)
+        output = dispatch(self.session, "show tools")
+        names = [line.split()[0] for line in output.splitlines()[1:7]]
+        self.assertIn("t1m3l1n3", names)
+        self.assertNotIn("timeline", names)
 
 
 class TimelineToolTests(ConsoleToolTestCase):

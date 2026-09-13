@@ -20,14 +20,14 @@ class RootMenuTests(unittest.TestCase):
     def test_lists_every_tool_with_summary_and_card_detail(self):
         root = menu.root_menu(self.session)
         labels = [item.label for item in root.items]
-        for name in ("cust0dia", "timeline", "h4ndl3", "m3talex", "casework", "guide"):
+        for name in ("cust0dia", "t1m3l1n3", "h4ndl3", "m3talex", "c4s3w0rk", "gu1d3"):
             self.assertIn(name, labels)
-        casework = next(item for item in root.items if item.label == "casework")
+        casework = next(item for item in root.items if item.label == "c4s3w0rk")
         self.assertIn("case workspaces", casework.description)
         # The detail pane shows the module card.
-        self.assertIn("casework — case workspaces", casework.detail)
+        self.assertIn("c4s3w0rk — case workspaces", casework.detail)
         self.assertIn("run:", casework.detail)
-        self.assertEqual(casework.action, ("use", "casework"))
+        self.assertEqual(casework.action, ("use", "c4s3w0rk"))
 
     def test_yellow_tools_are_marked(self):
         root = menu.root_menu(self.session)
@@ -37,13 +37,13 @@ class RootMenuTests(unittest.TestCase):
     def test_core_submenu_entry(self):
         root = menu.root_menu(self.session)
         core = root.items[-1]
-        self.assertEqual(core.label, "core")
+        self.assertEqual(core.label, "c0r3")
         self.assertEqual(core.action, ("submenu", "core"))
         self.assertIn("core commands:", core.detail)
 
     def test_rebuilt_root_reflects_current_session(self):
         root = menu.root_menu(self.session)
-        casework = next(item for item in root.items if item.label == "casework")
+        casework = next(item for item in root.items if item.label == "c4s3w0rk")
         self.assertIn("unset — required", casework.detail)
 
 
@@ -61,7 +61,7 @@ class ToolMenuTests(unittest.TestCase):
         self.assertIn("new <case-id> <title...>", labels)
         self.assertIn("subject add [subject-id]", labels)
         self.assertIs(m.parent, self.root)
-        self.assertIn("casework", m.title)
+        self.assertIn("c4s3w0rk", m.title)
 
     def test_commands_with_arguments_prefill_instead_of_running(self):
         m = menu.tool_menu(self.session, "cust0dia", parent=self.root)

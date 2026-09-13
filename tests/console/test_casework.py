@@ -235,7 +235,7 @@ class CaseCreationTests(CaseworkTestCase):
     def test_core_show_still_works_while_casework_active(self):
         # casework's "show case" must not shadow the core `show`.
         output = dispatch(self.session, "show tools")
-        self.assertIn("casework", output)
+        self.assertIn("c4s3w0rk", output)
         output = dispatch(self.session, "show options")
         self.assertIn("workspace", output)
 
@@ -567,7 +567,7 @@ class RunTests(CaseworkTestCase):
         output = dispatch(self.session, "show tools")
         names = [line.split()[0] for line in output.splitlines()[1:6]]
         self.assertEqual(
-            names, ["cust0dia", "timeline", "h4ndl3", "m3talex", "casework"]
+            names, ["cust0dia", "t1m3l1n3", "h4ndl3", "m3talex", "c4s3w0rk"]
         )
         output = dispatch(self.session, "help")
         self.assertIn("new <case-id> <title...>", output)

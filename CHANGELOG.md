@@ -49,6 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Console tool names now all follow the suite's naming pattern**:
+  `timeline` → `t1m3l1n3`, `casework` → `c4s3w0rk`, `guide` → `gu1d3`,
+  and the menu's core entry is `c0r3`. The former names keep working as
+  aliases in dispatch, `help`, `info`, and tab completion, but every
+  display (module cards, help, `show tools`, the status bar,
+  attestation log action strings) shows the canonical name. The
+  non-interactive CLIs (`chr0nix case`, `chr0nix guide`,
+  `chr0nix timeline`) are unchanged.
+
 - The console input prompt names the active guided form and field
   position while a form owns the line (`new subject profile [3/12] >`),
   and the status bar shows an armed YELLOW challenge

@@ -133,7 +133,7 @@ simple column mapping.
 ### In the console
 
 The same pipeline is reachable interactively: `python -m chr0nix console`,
-then `use timeline`. `run` builds the timeline from the session's evidence
+then `use t1m3l1n3`. `run` builds the timeline from the session's evidence
 directory into the session output; `build <sources-dir> [output-dir]
 [NAME=IANA_TZ ...]` registers every `*.csv` under a directory as a source;
 `schema` prints the input contract. See

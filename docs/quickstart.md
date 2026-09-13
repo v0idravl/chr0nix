@@ -6,7 +6,7 @@ runnable; outputs below are trimmed where a listing is long. All timestamps
 are illustrative — yours will differ.
 
 You can drive the exact same workflow from the interactive console
-(`chr0nix console`, then `use casework`); this page uses the scriptable CLI
+(`chr0nix console`, then `use c4s3w0rk`); this page uses the scriptable CLI
 so it works on any terminal and can be pasted into a shell verbatim. Where a
 console command is nicer (guided forms, `:edit`), it is mentioned inline.
 
@@ -290,7 +290,7 @@ python -m chr0nix verify "$CHR0NIX_WORKSPACE/cases/case-2026-014/manifest.json" 
 
 ## Where to next
 
-- The same session interactively: `chr0nix console`, `use casework`, then
+- The same session interactively: `chr0nix console`, `use c4s3w0rk`, then
   `init`, `new`, `file`, `link`, `subject add` (guided form), `statement
   … :edit`, `export`. The console tiers person-affecting actions YELLOW and
   challenges them (`ack <reason>`) instead of taking `--ack`.

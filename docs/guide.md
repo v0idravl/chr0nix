@@ -16,7 +16,7 @@ Two front ends over the same code:
 
 - the **CLI** — `chr0nix guide list | show | capture` (or
   `python -m chr0nix.guide`);
-- the **console** — `use guide`, with `methods` / `hint` / `capture`.
+- the **console** — `use gu1d3`, with `methods` / `hint` / `capture`.
 
 > ⚠️ **Authorized use only.** Person-focused research is lawful only for
 > authorized casework; the YELLOW-tier gate exists to make that judgment

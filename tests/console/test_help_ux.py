@@ -34,14 +34,14 @@ class ScopedHelpTests(unittest.TestCase):
         self.assertIn("use <tool>", output)
         self.assertIn("help <tool>", output)
         self.assertIn("help all", output)
-        self.assertNotIn("casework commands:", output)
+        self.assertNotIn("c4s3w0rk commands:", output)
         self.assertNotIn("show exhibits", output)
         self.assertNotIn("new <case-id>", output)
 
     def test_bare_help_with_active_tool_shows_that_tool(self):
         dispatch(self.session, "use casework")
         output = dispatch(self.session, "help")
-        self.assertIn("casework commands: (active)", output)
+        self.assertIn("c4s3w0rk commands: (active)", output)
         self.assertIn("new <case-id> <title...>", output)
         self.assertIn("classify [case-id] <taxonomy-path>", output)
         # A one-line core reminder plus pointers — not the core table,
@@ -53,28 +53,29 @@ class ScopedHelpTests(unittest.TestCase):
         self.assertNotIn("show exhibits", output)
 
     def test_help_tool_without_switching(self):
+        # The alias still names the tool; the help shows the canonical name.
         output = dispatch(self.session, "help timeline")
-        self.assertIn("timeline commands:", output)
+        self.assertIn("t1m3l1n3 commands:", output)
         self.assertIn("build <sources-dir>", output)
-        self.assertIn("use timeline", output)  # the not-loaded pointer
+        self.assertIn("use t1m3l1n3", output)  # the not-loaded pointer
         self.assertIsNone(self.session.active_tool)
 
     def test_help_tool_marks_the_active_tool(self):
         dispatch(self.session, "use timeline")
         output = dispatch(self.session, "help timeline")
-        self.assertIn("timeline commands: (active)", output)
+        self.assertIn("t1m3l1n3 commands: (active)", output)
 
     def test_help_core_shows_only_the_core_table(self):
         output = dispatch(self.session, "help core")
         self.assertIn("core commands:", output)
         self.assertIn("ack <reason...>", output)
         self.assertIn("run", output)
-        self.assertNotIn("casework commands:", output)
+        self.assertNotIn("c4s3w0rk commands:", output)
 
     def test_help_all_is_the_full_dump(self):
         output = dispatch(self.session, "help all")
         self.assertIn("core commands:", output)
-        for name in ("cust0dia", "timeline", "h4ndl3", "m3talex", "casework", "guide"):
+        for name in ("cust0dia", "t1m3l1n3", "h4ndl3", "m3talex", "c4s3w0rk", "gu1d3"):
             self.assertIn(f"{name} commands:", output)
         self.assertIn("show exhibits", output)
 
@@ -106,9 +107,9 @@ class ModuleCardTests(unittest.TestCase):
         self.session = SessionContext()
 
     def test_use_prints_the_module_card(self):
-        output = dispatch(self.session, "use casework")
-        self.assertTrue(output.startswith("active tool -> casework\n"), output)
-        self.assertIn("casework — case workspaces", output)
+        output = dispatch(self.session, "use c4s3w0rk")
+        self.assertTrue(output.startswith("active tool -> c4s3w0rk\n"), output)
+        self.assertIn("c4s3w0rk — case workspaces", output)
         self.assertIn("run: the workspace case table", output)
         self.assertIn("workspace = (unset — required; `set workspace <value>`)", output)
         self.assertIn("actor", output)
@@ -125,14 +126,14 @@ class ModuleCardTests(unittest.TestCase):
         self.assertNotIn("workspace = (unset", output)
 
     def test_bare_tool_name_prints_the_card(self):
-        output = dispatch(self.session, "casework")
-        self.assertTrue(output.startswith("active tool -> casework\n"), output)
+        output = dispatch(self.session, "c4s3w0rk")
+        self.assertTrue(output.startswith("active tool -> c4s3w0rk\n"), output)
         self.assertIn("run: the workspace case table", output)
 
     def test_tool_without_options_says_so(self):
         # guide's options are all optional, so no required-unset callout.
         output = dispatch(self.session, "use guide")
-        self.assertIn("active tool -> guide", output)
+        self.assertIn("active tool -> gu1d3", output)
         self.assertNotIn("required", output)
 
 
@@ -171,12 +172,12 @@ class ShowOptionsTests(unittest.TestCase):
             line for line in output.splitlines() if line.startswith("evidence")
         )
         self.assertIn("no", evidence_line)
-        self.assertIn("active tool: casework", output)
+        self.assertIn("active tool: c4s3w0rk", output)
 
     def test_missing_required_options_called_out(self):
         dispatch(self.session, "use casework")
         output = dispatch(self.session, "show options")
-        self.assertIn("missing required for casework: workspace", output)
+        self.assertIn("missing required for c4s3w0rk: workspace", output)
         workspace = self.workdir / "ws"
         workspace.mkdir()
         dispatch(self.session, f"set workspace {workspace}")
@@ -274,12 +275,12 @@ class PromptTests(unittest.TestCase):
     def test_prompt_names_the_active_tool(self):
         session = SessionContext()
         self.assertEqual(_prompt_text(session), "chr0nix: > ")
-        session.active_tool = "casework"
-        self.assertEqual(_prompt_text(session), "chr0nix:casework > ")
+        session.active_tool = "c4s3w0rk"
+        self.assertEqual(_prompt_text(session), "chr0nix:c4s3w0rk > ")
 
     def test_prompt_says_when_a_form_owns_the_line(self):
         session = SessionContext()
-        session.active_tool = "casework"
+        session.active_tool = "c4s3w0rk"
         session.form = SimpleNamespace(
             title="new subject profile", fields=[object()] * 12, index=0
         )
@@ -308,10 +309,11 @@ class CompletionRoundTests(unittest.TestCase):
         self.assertIn("vehicle edit", candidates)
 
     def test_tool_name_prefixes_its_commands(self):
+        # Aliases complete too, but candidates carry the canonical name.
         self.assertEqual(
-            complete(self.session, "casework in"), ["casework inbox", "casework init"]
+            complete(self.session, "casework in"), ["c4s3w0rk inbox", "c4s3w0rk init"]
         )
-        self.assertEqual(complete(self.session, "timeline b"), ["timeline build"])
+        self.assertEqual(complete(self.session, "timeline b"), ["t1m3l1n3 build"])
 
     def test_set_completes_paths_for_path_options(self):
         with TemporaryDirectory() as tmp:
@@ -364,7 +366,7 @@ class DidYouMeanTests(unittest.TestCase):
         self.session = SessionContext()
 
     def test_unknown_command_suggests_a_near_match(self):
-        with self.assertRaisesRegex(SuiteError, "did you mean: casework"):
+        with self.assertRaisesRegex(SuiteError, "did you mean: c4s3w0rk"):
             dispatch(self.session, "caswork")
 
     def test_unknown_help_topic_suggests_a_near_match(self):

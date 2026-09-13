@@ -50,7 +50,7 @@ candidates. It knows the grammar, not just the first word — option names
 after `set`/`unset`, filesystem paths for the path-valued options
 (directories keep their `/` so tab descends), tool names after
 `use`/`info`, topics after `help`, a tool's commands after its name
-(`casework in<Tab>`), and the second word of two-word commands
+(`c4s3w0rk in<Tab>`), and the second word of two-word commands
 (`subject a<Tab>`). While a guided form owns the session, the prompt
 names the form and field position — ordinary commands are not running,
 and the prompt says so.
@@ -85,12 +85,17 @@ The grammar is deliberately tiny, in the operator-console tradition:
 
 Dispatch is deliberately forgiving, in the sliver tradition:
 
-- a bare tool name selects the tool: `casework` is `use casework`;
+- a bare tool name selects the tool: `c4s3w0rk` is `use c4s3w0rk`;
 - a tool name as the first word runs the rest of the line in that tool's
-  context: `casework init /cases/2026` is `use casework` plus
+  context: `c4s3w0rk init /cases/2026` is `use c4s3w0rk` plus
   `init /cases/2026`;
 - any tool command typed from anywhere switches the active tool to its
   owner — announcing the switch, never silently.
+
+The six tools are `cust0dia`, `t1m3l1n3`, `h4ndl3`, `m3talex`,
+`c4s3w0rk`, and `gu1d3`; the former plain names `timeline`, `casework`,
+and `guide` keep working as aliases (dispatch, `help`, `info`,
+completion), but every display shows the canonical name.
 
 Parsing uses `shlex.split`: quoted arguments work, and there is no shell —
 an evidence console has no business evaluating command lines.
@@ -104,7 +109,7 @@ without switching, `help core` is just the core table, `help <command>`
 shows one command's usage with its tier and worked examples, and
 `help all` keeps the full everything-dump reachable for grep-ing.
 
-Loading a tool (`use casework`, or just `casework`) prints its **module
+Loading a tool (`use c4s3w0rk`, or just `c4s3w0rk`) prints its **module
 card**: a one-line summary, what `run` does, the session options the tool
 draws on (required-but-unset ones called out with the `set` hint), and a
 teaser of its commands. `info` reprints the card in full — every command —
@@ -136,11 +141,11 @@ the core grammar, and `run` executes the active tool's primary action:
 | Tool | `run` | Commands |
 | --- | --- | --- |
 | `cust0dia` | two-phase: collect the manifest, then verify against it | `show exhibits`, `show log`, `log <exhibit> <ACTION> [notes...]` |
-| `timeline` | build from the session evidence tree into the session output | `build <sources-dir> [output-dir] [NAME=IANA_TZ ...]`, `schema` |
+| `t1m3l1n3` | build from the session evidence tree into the session output | `build <sources-dir> [output-dir] [NAME=IANA_TZ ...]`, `schema` |
 | `h4ndl3` | validate the case store and refresh its report | `worksheet`, `add`, `validate`, `report` |
 | `m3talex` | batch-scan the session evidence tree | `scan <image-or-directory> [output-dir]` |
-| `casework` | the workspace case table + status summary | `init`, `new`, `cases`, `open`, `status`, `categorize`, `classify`, `link`, `links`, `subject add\|edit\|show\|set`, `subjects`, `vehicle add\|edit\|show\|set`, `vehicles`, `event`, `synopsis`, `show case`, `inbox`, `file`, `statement`, `statement-sign`, `statements` |
-| `guide` | the method catalogue | `methods`, `hint <method-id> [query...]`, `capture <method-id> <field>=<value> ...` |
+| `c4s3w0rk` | the workspace case table + status summary | `init`, `new`, `cases`, `open`, `status`, `categorize`, `classify`, `link`, `links`, `subject add\|edit\|show\|set`, `subjects`, `vehicle add\|edit\|show\|set`, `vehicles`, `event`, `synopsis`, `show case`, `inbox`, `file`, `statement`, `statement-sign`, `statements` |
+| `gu1d3` | the method catalogue | `methods`, `hint <method-id> [query...]`, `capture <method-id> <field>=<value> ...` |
 
 cust0dia's `run` is deliberately two-phase: before a manifest exists there
 is nothing to verify against, so it *collects*; once one exists, it
@@ -157,7 +162,7 @@ guided, field-by-field prompt — short info in boxes, sliver-style, rather
 than one long command line:
 
 ```text
-chr0nix:casework > subject add
+chr0nix:c4s3w0rk > subject add
 new subject profile
 Enter keeps [current] / skips; `done` saves now; `cancel` aborts.
 [1/12] Subject id (slug-safe: lowercase letters, digits, hyphens (e.g. subj-001)): subj-001
@@ -199,10 +204,10 @@ tier decides what "running it" means:
 - **GREEN** — pure offline documentation. Runs immediately.
 - **YELLOW** — lawful only under specific circumstances: identifier research
   tied to a person (h4ndl3 `worksheet` / `add`), associating a person across
-  cases (casework `link ... subject`), attesting a case to third parties
-  (casework `status ... submitted|referred`), claiming a signed statement
-  exists (casework `statement-sign`), and person-focused research guidance
-  (guide `hint` / `capture` on the identifier-research methods).
+  cases (c4s3w0rk `link ... subject`), attesting a case to third parties
+  (c4s3w0rk `status ... submitted|referred`), claiming a signed statement
+  exists (c4s3w0rk `statement-sign`), and person-focused research guidance
+  (gu1d3 `hint` / `capture` on the identifier-research methods).
 - **RED** — reserved; defined but currently assigned to nothing.
 
 A YELLOW action does not execute on first invocation. It answers with a
@@ -227,7 +232,7 @@ require a workspace (nowhere to attest, no action) and a session actor
 `ack` consumes it, and any other command clears it, so a stale challenge
 can never be confirmed by accident later.
 
-A command's tier can depend on its arguments — casework `status` is YELLOW
+A command's tier can depend on its arguments — c4s3w0rk `status` is YELLOW
 only for `submitted`/`referred`, `link` only for `subject` — so the friction
 stays proportionate: internal statuses and vehicle/case links run GREEN.
 

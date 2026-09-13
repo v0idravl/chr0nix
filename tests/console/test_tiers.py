@@ -60,7 +60,7 @@ class ChallengeTests(TierTestCase):
         output = dispatch(self.session, "link case-2026-014 subject subj-001")
         self.assertTrue(output.startswith("YELLOW"), output)
         self.assertIn("lawful only under specific circumstances", output)
-        self.assertIn("casework link case-2026-014 subject subj-001", output)
+        self.assertIn("c4s3w0rk link case-2026-014 subject subj-001", output)
         self.assertIn("associating a person", output)
         self.assertIn("ack <reason...>", output)
         # Nothing executed, nothing logged.
@@ -80,7 +80,7 @@ class ChallengeTests(TierTestCase):
         timestamp, actor, action, reason = rows[0]
         self.assertRegex(timestamp, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
         self.assertEqual(actor, "A. Rivera")
-        self.assertEqual(action, "casework link case-2026-014 subject subj-001")
+        self.assertEqual(action, "c4s3w0rk link case-2026-014 subject subj-001")
         self.assertEqual(reason, "court-ordered loss-prevention investigation")
 
     def test_two_yellow_actions_log_two_rows(self):
@@ -90,7 +90,7 @@ class ChallengeTests(TierTestCase):
         dispatch(self.session, "ack second reason")
         rows = self.attest_rows()
         self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[1][2], "casework status case-2026-014 submitted")
+        self.assertEqual(rows[1][2], "c4s3w0rk status case-2026-014 submitted")
         self.assertEqual(rows[1][3], "second reason")
 
     def test_ack_without_pending_action_is_error(self):
@@ -202,7 +202,7 @@ class AttestationLogTests(TierTestCase):
         output = dispatch(self.session, "show attestations")
         self.assertIn("timestamp_utc,actor,action,reason", output)
         self.assertIn("A. Rivera", output)
-        self.assertIn("casework link case-2026-014 subject subj-001", output)
+        self.assertIn("c4s3w0rk link case-2026-014 subject subj-001", output)
         self.assertIn("authorized casework", output)
 
     def test_attestation_log_is_append_only_with_checked_header(self):
@@ -239,12 +239,12 @@ class VisibilityTests(TierTestCase):
 
     def test_show_tools_annotates_yellow_tools(self):
         output = dispatch(self.session, "show tools")
-        for name in ("h4ndl3", "casework"):
+        for name in ("h4ndl3", "c4s3w0rk"):
             line = next(
                 line for line in output.splitlines() if line.startswith(name)
             )
             self.assertIn("[yellow]", line)
-        for name in ("cust0dia", "timeline", "m3talex"):
+        for name in ("cust0dia", "t1m3l1n3", "m3talex"):
             line = next(
                 line for line in output.splitlines() if line.startswith(name)
             )
