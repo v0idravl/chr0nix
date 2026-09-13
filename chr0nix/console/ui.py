@@ -50,12 +50,17 @@ MIN_LINES = 20
 _WELCOME = (
     f"chr0nix console {__version__} — the investigative-documentation suite\n"
     "the menu is open: arrows or hjkl move, Enter selects, ←/h goes back\n"
-    "type anytime to enter commands directly (`menu` reopens the menu; `exit` leaves)\n"
+    "type anytime to enter commands directly; ← or Esc on an empty line "
+    "(or `menu`) brings the menu back where you left it\n"
     "quickstart: init <workspace-dir> · set actor <name> · new <case-id> <title>"
 )
 
 #: The input-line text while a menu is open (there is no input then).
 _MENU_HINT = "menu: ↑↓/jk move · Enter/→/l select · ←/h/q/Esc back · type to leave"
+
+#: Shown once whenever a menu action closes the menu, so the way back is
+#: never something the operator has to remember.
+_MENU_RETURN_HINT = "(← or Esc on an empty line — or `menu` — returns to the menu)"
 
 #: Keys read ahead while decoding an escape sequence, to be returned
 #: before the next ``get_wch`` (see :func:`_read_key`).
@@ -387,14 +392,23 @@ def _main_loop(stdscr, session: SessionContext) -> None:
     _init_colors()
     curses.raw()
     stdscr.keypad(True)
+    # Shorten ncurses' lone-Esc delay: _read_key does its own escape
+    # sequence decoding, so a long ESCDELAY would only make the Esc key
+    # (menu back/return) feel sluggish.
+    curses.set_escdelay(25)
 
     editor = _Editor()
     # Scrollback holds (text, attr) display lines, already wrapped.
     scrollback: list[tuple[str, int]] = []
     scroll_offset = 0  # lines up from the bottom; 0 = following newest
     # The console opens into the tool menu — the self-explanatory front
-    # door. None means the plain scrollback/prompt view.
+    # door. None means the plain scrollback/prompt view. `last_menu`
+    # remembers where the operator left the menu: closing it never
+    # strands them, and returning (the `menu` command, or ←/Esc on an
+    # empty input line) resumes the same spot, rebuilt fresh against
+    # the session.
     current_menu: menu.Menu | None = menu.root_menu(session)
+    last_menu: menu.Menu | None = None
 
     def emit(text: str, attr: int = 0) -> None:
         for wrapped in _wrap(text, width):
@@ -402,6 +416,11 @@ def _main_loop(stdscr, session: SessionContext) -> None:
 
     for line in _wrap(_WELCOME, width):
         scrollback.append((line, curses.A_BOLD))
+
+    def open_menu() -> None:
+        """Return to the menu where the operator left it (or the root)."""
+        nonlocal current_menu
+        current_menu = menu.reopen(session, last_menu)
 
     def execute(line: str) -> None:
         """Echo and dispatch one line, exactly as if it had been typed.
@@ -420,7 +439,7 @@ def _main_loop(stdscr, session: SessionContext) -> None:
         except ConsoleClear:
             scrollback.clear()
         except ConsoleMenu:
-            current_menu = menu.root_menu(session)
+            open_menu()
         except EditorHandoff as handoff:
             # A form field (or statement/event `:edit`) wants the
             # terminal editor: suspend curses, compose, resume.
@@ -451,7 +470,7 @@ def _main_loop(stdscr, session: SessionContext) -> None:
 
     def activate(item: menu.MenuItem) -> None:
         """Perform the highlighted menu item's action (see menu.py)."""
-        nonlocal current_menu
+        nonlocal current_menu, last_menu
         kind, value = item.action
         if kind == "use":
             execute(f"use {value}")
@@ -459,15 +478,21 @@ def _main_loop(stdscr, session: SessionContext) -> None:
         elif kind == "submenu":
             current_menu = menu.core_menu(session, parent=current_menu)
         elif kind == "run":
+            # Leaving the menu to run a command: remember the spot and
+            # say how to return — the menu is never a one-way door.
+            last_menu = current_menu
             current_menu = None
             execute(value)
+            emit(_MENU_RETURN_HINT)
         elif kind == "prefill":
             # Commands that need arguments leave the menu with the
             # command name in the input line — the operator types only
             # the arguments.
+            last_menu = current_menu
             current_menu = None
             editor.buffer = list(value)
             editor.cursor = len(editor.buffer)
+            emit(_MENU_RETURN_HINT)
 
     while True:
         height, width = stdscr.getmaxyx()
@@ -506,11 +531,19 @@ def _main_loop(stdscr, session: SessionContext) -> None:
         if current_menu is not None:
             # Menu mode: arrows (and hjkl) navigate; typing any other
             # printable character leaves the menu and starts a command.
+            # Either way out remembers the spot: `menu` (or ←/Esc on an
+            # empty line) returns to it.
             if key == curses.KEY_UP or key == "k":
                 current_menu.move(-1)
             elif key == curses.KEY_DOWN or key == "j":
                 current_menu.move(1)
             elif key == curses.KEY_LEFT or key in ("h", "q", "\x1b"):
+                # Backing out to a parent submenu stays in menu mode;
+                # only leaving the menu entirely records the spot, so a
+                # deliberate climb to the root isn't "where you were
+                # working".
+                if current_menu.parent is None:
+                    last_menu = current_menu
                 current_menu = current_menu.parent  # None at the root
             elif key in (curses.KEY_RIGHT, curses.KEY_ENTER) or key in ("l", "\n", "\r"):
                 try:
@@ -520,6 +553,7 @@ def _main_loop(stdscr, session: SessionContext) -> None:
             elif isinstance(key, str) and key in ("\x03", "\x04"):  # Ctrl-C / Ctrl-D
                 return
             elif isinstance(key, str) and key.isprintable():
+                last_menu = current_menu
                 current_menu = None
                 editor.insert(key)
             continue
@@ -556,6 +590,12 @@ def _main_loop(stdscr, session: SessionContext) -> None:
             editor.insert(key)
         elif key == curses.KEY_BACKSPACE or key == curses.KEY_DC:
             editor.backspace()
+        elif not editor.buffer and key in (curses.KEY_LEFT, "\x1b"):
+            # At an empty prompt, "back" means back to the menu — the
+            # same key that backs out of menus, so the way home is one
+            # reflex. With text in the buffer these keys keep their
+            # editing meaning (cursor left / nothing).
+            open_menu()
         elif key == curses.KEY_LEFT:
             editor.cursor = max(0, editor.cursor - 1)
         elif key == curses.KEY_RIGHT:

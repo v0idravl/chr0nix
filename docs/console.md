@@ -30,7 +30,11 @@ always one keystroke away, or zero. Selecting a tool loads it (`use
 either runs it (when it needs no arguments) or prefills the input line
 with the command's name, so only the arguments are typed. Typing any
 other character leaves the menu and starts a command line with it; the
-`menu` command reopens the menu at any time. Every menu action goes
+`menu` command — or ←/Esc on an empty input line — brings the menu back
+*where you left it*, rebuilt against the current session, so an
+investigation thread (init → new → file → …) is always one keypress
+away. Backing out deliberately to the root before leaving makes the
+root the return spot. Every menu action goes
 through the same dispatcher as a typed line, so the scrollback records
 what actually ran.
 

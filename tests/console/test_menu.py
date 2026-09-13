@@ -7,6 +7,8 @@ actions are data, and the ``menu`` core command signals the UI through
 """
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from chr0nix.console import menu
 from chr0nix.console.commands import ConsoleMenu, dispatch
@@ -101,6 +103,50 @@ class MenuModelTests(unittest.TestCase):
         self.assertEqual(m.index, len(m.items) - 1)
         m.move(-1)
         self.assertEqual(m.index, len(m.items) - 2)
+
+
+class ReopenTests(unittest.TestCase):
+    """Leaving the menu never strands the operator: reopen() rebuilds the
+    same spot — fresh against the session, position preserved."""
+
+    def setUp(self):
+        self.session = SessionContext()
+
+    def test_reopen_none_is_the_root(self):
+        fresh = menu.reopen(self.session, None)
+        self.assertEqual(fresh.key, ("root",))
+
+    def test_reopen_preserves_position_and_parent_chain(self):
+        root = menu.root_menu(self.session)
+        root.index = 4  # c4s3w0rk
+        tool = menu.tool_menu(self.session, "c4s3w0rk", parent=root)
+        tool.index = 2
+        fresh = menu.reopen(self.session, tool)
+        self.assertEqual(fresh.key, ("tool", "c4s3w0rk"))
+        self.assertEqual(fresh.index, 2)
+        self.assertIsNot(fresh, tool)  # rebuilt, not the same object
+        self.assertIsNotNone(fresh.parent)
+        self.assertEqual(fresh.parent.key, ("root",))
+        self.assertEqual(fresh.parent.index, 4)
+
+    def test_reopen_refreshes_detail_against_the_session(self):
+        root = menu.root_menu(self.session)
+        casework = next(item for item in root.items if item.label == "c4s3w0rk")
+        self.assertIn("unset — required", casework.detail)
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "ws"
+            workspace.mkdir()
+            dispatch(self.session, f"set workspace {workspace}")
+            fresh = menu.reopen(self.session, root)
+            item = next(i for i in fresh.items if i.label == "c4s3w0rk")
+            self.assertNotIn("unset — required", item.detail)
+            self.assertIn(str(workspace.resolve()), item.detail)
+
+    def test_reopen_clamps_a_stale_index(self):
+        root = menu.root_menu(self.session)
+        root.index = 10_000  # longer than any rebuilt menu
+        fresh = menu.reopen(self.session, root)
+        self.assertEqual(fresh.index, len(fresh.items) - 1)
 
 
 class MenuCommandTests(unittest.TestCase):

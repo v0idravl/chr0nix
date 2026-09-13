@@ -18,10 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it (`use <tool>`) and opens its command menu; selecting a command
   runs it when it needs no arguments, or prefills the input line with
   its name when it does. Typing any other character leaves the menu and
-  starts a command line with it; the new `menu` core command reopens
-  the menu. Split escape sequences (a bare `ESC [ B` arriving across
-  reads) are decoded into arrow keys, in both the normal-mode and
-  application-mode dialects.
+  starts a command line with it. **The menu is never a one-way door:**
+  the `menu` command or ←/Esc on an empty input line returns to the
+  menu where you left it, rebuilt fresh against the session (position
+  preserved, module cards current), and a hint line saying so appears
+  whenever a menu action closes the menu. Split escape sequences (a
+  bare `ESC [ B` arriving across reads) are decoded into arrow keys, in
+  both the normal-mode and application-mode dialects.
 
 - **Console operator-UX layer** (`chr0nix/console/commands.py`,
   `tools.py`, `session.py`, `ui.py`). Help is now scoped: bare `help`

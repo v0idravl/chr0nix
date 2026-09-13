@@ -57,14 +57,24 @@ class Menu:
     root, where backing out leaves menu mode entirely). The highlight
     clamps at both ends — no wraparound, so leaning on an arrow key is
     always calm.
+
+    ``key`` identifies which builder made the menu — ``("root",)``,
+    ``("tool", name)``, or ``("core",)`` — so :func:`reopen` can rebuild
+    the same menu (and its parents) fresh against the current session
+    while preserving the highlight position.
     """
 
     def __init__(
-        self, title: str, items: list[MenuItem], parent: "Menu | None" = None
+        self,
+        title: str,
+        items: list[MenuItem],
+        parent: "Menu | None" = None,
+        key: tuple = (),
     ) -> None:
         self.title = title
         self.items = items
         self.parent = parent
+        self.key = key
         self.index = 0
 
     @property
@@ -73,6 +83,28 @@ class Menu:
 
     def move(self, delta: int) -> None:
         self.index = max(0, min(len(self.items) - 1, self.index + delta))
+
+
+def reopen(session: SessionContext, m: Menu | None) -> Menu:
+    """Rebuild the menu ``m`` (and its parent chain) against the session.
+
+    Menus are rebuilt rather than kept live so a reopened menu's detail
+    panes — module cards name which options are set — always reflect
+    the session as it is now. The highlight positions are preserved:
+    an investigation thread (init → new → file → …) resumes exactly
+    where the operator left it.
+    """
+    if m is None:
+        return root_menu(session)
+    parent = reopen(session, m.parent) if m.parent is not None else None
+    if m.key and m.key[0] == "tool":
+        fresh = tool_menu(session, m.key[1], parent)
+    elif m.key == ("core",):
+        fresh = core_menu(session, parent)
+    else:
+        fresh = root_menu(session)
+    fresh.index = min(m.index, len(fresh.items) - 1)
+    return fresh
 
 
 def _command_item(command: "_tools.Command") -> MenuItem:
@@ -117,7 +149,7 @@ def root_menu(session: SessionContext) -> Menu:
             action=("submenu", "core"),
         )
     )
-    return Menu("select a tool", items)
+    return Menu("select a tool", items, key=("root",))
 
 
 def tool_menu(session: SessionContext, tool_name: str, parent: Menu) -> Menu:
@@ -134,7 +166,7 @@ def tool_menu(session: SessionContext, tool_name: str, parent: Menu) -> Menu:
         )
     ]
     items += [_command_item(command) for command in tool.commands]
-    return Menu(f"{tool.name} — {tool.summary}", items, parent)
+    return Menu(f"{tool.name} — {tool.summary}", items, parent, key=("tool", tool.name))
 
 
 def core_menu(session: SessionContext, parent: Menu) -> Menu:
@@ -153,4 +185,4 @@ def core_menu(session: SessionContext, parent: Menu) -> Menu:
                 action=action,
             )
         )
-    return Menu("core commands", items, parent)
+    return Menu("core commands", items, parent, key=("core",))

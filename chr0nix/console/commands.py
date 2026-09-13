@@ -116,7 +116,8 @@ class ConsoleMenu(Exception):
 _CORE_HELP: tuple[tuple[str, str, str], ...] = (
     ("help", "help [topic]", "scoped help: a command, a tool, `core`, or "
      "`all` (bare: what matters in the current context)"),
-    ("menu", "menu", "open the arrow-key navigation menu"),
+    ("menu", "menu", "return to the arrow-key navigation menu, where you "
+     "left it"),
     ("info", "info [tool]", "the active (or named) tool's full module card"),
     ("show", "show tools|options|attestations",
      "list registered tools / show session state / print the attestation log"),
@@ -161,7 +162,8 @@ def _help_overview() -> str:
     ]
     lines += [
         "orient:",
-        "  menu            navigate tools and commands with the arrow keys",
+        "  menu            navigate tools and commands with the arrow keys "
+        "(returns where you left off)",
         "  use <tool>      load a tool — prints its module card "
         "(what it needs, top commands)",
         "  help <tool>     a tool's commands without switching to it",
